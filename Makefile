@@ -1,5 +1,5 @@
 # Setup name variables for the package/tool
-NAME := go-template
+NAME := godupless
 PKG := github.com/rasa/$(NAME)
 
 CGO_ENABLED := 0
