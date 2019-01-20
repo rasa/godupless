@@ -269,8 +269,52 @@ func (d *Dupless) addPath(path string, size uint64) {
 	}
 }
 
+func (d *Dupless) progress(final bool) {
+	if !final && (d.freq == 0 || d.hits%d.freq != 0) {
+		return
+	}
+	if d.volume != d.lastVolume {
+		if d.lastVolume != "" {
+			d.skipped = 0
+			d.directories = 0
+			d.matched = 0
+			d.errors = 0
+			d.ignored = 0
+			fmt.Println("")
+		}
+		d.lastVolume = d.volume
+	}
+
+	d.p.Printf("\r%11d %11d %11d %11d %11d %s", d.skipped, d.matched, d.directories, d.ignored, d.errors, d.volume)
+
+	if final {
+		fmt.Println("")
+	}
+}
+
+func (d *Dupless) addError(path string, s string) {
+	dir := getDir(path, d.minDirLength)
+	errorRec := ErrorRec{Path: path, Error: s}
+	d.errorDirs[dir] = append(d.errorDirs[dir], &errorRec)
+	d.errors++
+	if d.verbose > 0 {
+		fmt.Fprintln(os.Stderr, s)
+	}
+}
+
+func (d *Dupless) addIgnore(path string, typ string) {
+	dir := getDir(path, d.minDirLength)
+	IgnoredRec := IgnoredRec{Path: path, Type: typ}
+	d.ignoredDirs[dir] = append(d.ignoredDirs[dir], &IgnoredRec)
+	d.ignored++
+	if d.verbose > 0 {
+		s := fmt.Sprintf("Skipping '%s' as it is a %s", path, typ)
+		fmt.Fprintf(os.Stderr, "\n%s\n", s)
+	}
+}
+
 func (d *Dupless) reportByDir() {
-	fmt.Println("reportByDir:")
+	fmt.Printf("Duplication Report By Size/Directory\n\n")
 
 	for size := range d.dups {
 		for _, paths := range d.dups[size] {
@@ -302,20 +346,26 @@ func (d *Dupless) reportByDir() {
 	}
 	sort.Sort(sort.Reverse(Uint64Slice(sizes)))
 
+	totalSize := uint64(0)
+	files := uint64(0)
+
 	for _, size := range sizes {
 		emitSize := true
+		totalSize += size
 		for i, dircount := range sizemap[size] {
 			if emitSize {
 				fmt.Printf("size: %d\n", size)
 				emitSize = false
 			}
 			fmt.Printf("  %d: %v (%d)\n", i+1, dircount.Dir, dircount.Count)
+			files += uint64(dircount.Count)
 		}
 	}
+	d.p.Printf("\n%d files totaling %d bytes (%d bytes per file average)\n", files, totalSize, totalSize/files)
 }
 
 func (d *Dupless) reportBySize() {
-	fmt.Println("reportBySize:")
+	fmt.Printf("Duplication Report By Size/Paths\n\n")
 
 	i := 0
 	sizes := make([]uint64, len(d.dups))
@@ -325,61 +375,24 @@ func (d *Dupless) reportBySize() {
 	}
 	sort.Sort(sort.Reverse(Uint64Slice(sizes)))
 
+	totalSize := uint64(0)
+	files := uint64(0)
+
 	for _, size := range sizes {
 		for hash, paths := range d.dups[size] {
 			if uint(len(paths)) < d.minFiles {
 				continue
 			}
+			totalSize += size
+			files += uint64(len(paths))
 			d.p.Printf("Size: %d (%s)\n", size, hash)
 			for i, path := range paths {
 				fmt.Printf("  %d: %s\n", i+1, path)
 			}
 		}
 	}
-}
 
-func (d *Dupless) progress(final bool) {
-	if !final && (d.freq == 0 || d.hits%d.freq != 0) {
-		return
-	}
-	if d.volume != d.lastVolume {
-		if d.lastVolume != "" {
-			d.skipped = 0
-			d.directories = 0
-			d.matched = 0
-			d.errors = 0
-			d.ignored = 0
-			fmt.Println("")
-		}
-		d.lastVolume = d.volume
-	}
-
-	d.p.Printf("\r%11d %11d %11d %11d %11d %s", d.skipped, d.matched, d.directories, d.ignored, d.errors, d.volume)
-
-	if final {
-		fmt.Println("")
-	}
-}
-
-func (d *Dupless) addError(path string, s string) {
-	dir := getDir(path, d.minDirLength)
-	errorRec := ErrorRec{Path: path, Error: s}
-	d.errorDirs[dir] = append(d.errorDirs[dir], &errorRec)
-	d.errors++
-	if d.verbose > 0 {
-		fmt.Println(s)
-	}
-}
-
-func (d *Dupless) addIgnore(path string, typ string) {
-	dir := getDir(path, d.minDirLength)
-	IgnoredRec := IgnoredRec{Path: path, Type: typ}
-	d.ignoredDirs[dir] = append(d.ignoredDirs[dir], &IgnoredRec)
-	d.ignored++
-	if d.verbose > 0 {
-		s := fmt.Sprintf("Skipping '%s' as it is a %s", path, typ)
-		fmt.Printf("\n%s\n", s)
-	}
+	d.p.Printf("\n%d files totaling %d bytes (%d bytes per file average)\n", files, totalSize, totalSize/files)
 }
 
 func (d *Dupless) reportIgnored() {
@@ -387,7 +400,7 @@ func (d *Dupless) reportIgnored() {
 		return
 	}
 
-	fmt.Printf("Ignored:\n")
+	fmt.Printf("Ignored Files/Directories Report\n\n")
 
 	i := 0
 	dirs := make([]string, len(d.ignoredDirs))
@@ -462,7 +475,7 @@ func (d *Dupless) visit(path string, f os.FileInfo, err error) error {
 			if err != nil {
 				d.errors++
 				if d.verbose > 0 {
-					fmt.Printf("\nCannot match '%s' using %s: %s\n", path, d.mask, err)
+					fmt.Fprintf(os.Stderr, "\nCannot match '%s' using %s: %s\n", path, d.mask, err)
 				}
 				break
 			}
@@ -476,7 +489,7 @@ func (d *Dupless) visit(path string, f os.FileInfo, err error) error {
 		if err != nil {
 			d.errors++
 			if d.verbose > 0 {
-				fmt.Printf("\nCannot open '%s': %s\n", path, err)
+				fmt.Fprintf(os.Stderr, "\nCannot open '%s': %s\n", path, err)
 			}
 			break
 		}
@@ -494,14 +507,15 @@ func (d *Dupless) visit(path string, f os.FileInfo, err error) error {
 		case "sha512", "SHA512":
 			h = sha512.New()
 		default:
-			log.Fatalf("Unknown hash format: '%s'", d.hash)
+			fmt.Fprintf(os.Stderr, "Unknown hash format: '%s'\n", d.hash)
+			os.Exit(1)
 		}
 
 		_, err = io.Copy(h, fh)
 		if err != nil {
 			d.errors++
 			if d.verbose > 0 {
-				fmt.Printf("\nCannot read '%s': %s\n", path, err)
+				fmt.Fprintf(os.Stderr, "\nCannot read '%s': %s\n", path, err)
 			}
 			break
 		}
@@ -557,9 +571,14 @@ func main() {
 	fmt.Printf("----------- ----------- ----------- ----------- ----------- ------\n")
 
 	for _, arg := range flag.Args() {
+		if runtime.GOOS == "windows" {
+			if len(arg) == 2 && arg[1] == ':' {
+				arg += string(os.PathSeparator)
+			}
+		}
 		err := filepath.Walk(arg, dupless.visit)
 		if err != nil {
-			log.Print("\nWalk returned:", err)
+			fmt.Fprintln(os.Stderr, "\nWalk returned:", err)
 		}
 	}
 
