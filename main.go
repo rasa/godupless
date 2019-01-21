@@ -1,11 +1,15 @@
 // Program godupless prints the version and exits
 package main
 
+/*
+@todo deal with hash collisions by excluding hash
+*/
 import (
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -18,6 +22,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/minio/highwayhash"
 	"github.com/rasa/godupless/version"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -64,7 +69,7 @@ const (
 	// DefaultFrequency @todo
 	DefaultFrequency = 100
 	// DefaultHash @todo
-	DefaultHash = "md5"
+	DefaultHash = "highway"
 	// DefaultMask @todo
 	DefaultMask = ""
 	// DefaultMinFiles @todo
@@ -496,8 +501,17 @@ func (d *Dupless) visit(path string, f os.FileInfo, err error) error {
 		defer fh.Close()
 
 		var h hash.Hash
+		
+		skey := "0000000000000000000000000000000000000000000000000000000000000000"
+		key, _ := hex.DecodeString(skey)
 
 		switch d.hash {
+		case "highway64", "Highway64", "HIGHWAY64", "highway", "Highway", "HIGHWAY":
+			h, _ = highwayhash.New64(key)
+		case "highway128", "Highway128", "HIGHWAY128":
+			h, _ = highwayhash.New128(key)
+		case "highway256", "Highway256", "HIGHWAY256":
+			h, _ = highwayhash.New(key)
 		case "md5", "MD5":
 			h = md5.New()
 		case "sha1", "SHA1":
