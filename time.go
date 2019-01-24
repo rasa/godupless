@@ -1,4 +1,4 @@
-// +build !windows
+// +build dragonfly,linux,solaris
 
 package main
 
