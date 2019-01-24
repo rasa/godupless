@@ -1,9 +1,6 @@
-// Program godupless prints the version and exits
+// Program godupless creates a report of duplicate files across multiple volumes
 package main
 
-/*
-@todo deal with hash collisions by excluding hash
-*/
 import (
 	"crypto/md5"
 	"crypto/sha1"
@@ -21,49 +18,18 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/gocarina/gocsv"
 	"github.com/minio/highwayhash"
 	"github.com/rasa/godupless/version"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
 
-/*
-2^1 	2
-2^2 	4
-2^3 	8
-2^4 	16
-2^5 	32
-2^6 	64
-2^7 	128
-2^8 	256
-2^9 	512
-2^10	1_024
-2^11	2_048
-2^12	4_096
-2^13	8_192
-2^14	16_384
-2^15	32_768
-2^16	65_536
-2^17	131_072
-2^18	262_144
-2^19	524_288
-2^20	1_048_576
-2^21	2_097_152
-2^22	4_194_304
-2^23	8_388_608
-2^24	16_777_216
-2^25	33_554_432
-2^26	67_108_864
-2^27	134_217_728
-2^28	268_435_456
-2^29	536_870_912
-2^30	1_073_741_824
-2^31	2_147_483_648
-2^32	4_294_967_296
-*/
-
 const (
+	// DefaultCache @todo
+	DefaultCache = "godupless.cache"
 	// DefaultDirReport @todo
 	DefaultDirReport = false
 	// DefaultFrequency @todo
@@ -77,13 +43,34 @@ const (
 	// DefaultMinDirLength @todo
 	DefaultMinDirLength = uint(2)
 	// DefaultMinSize @todo
-	DefaultMinSize = 2 << 24 // 16M
+	DefaultMinSize = 2 << 20 // 16M
 	// DefaultRecursive @todo
 	DefaultRecursive = false
 	// DefaultSizeReport @todo
 	DefaultSizeReport = true
+	// DefaultUTC @todo
+	DefaultUTC = true
 	// DefaultVerbose @todo
 	DefaultVerbose = 0
+)
+
+const (
+	// ModeRegularFile @todo
+	ModeRegularFile = "file"
+	// ModeDirectory @todo
+	ModeDirectory = "directory"
+	// ModeSymlink @todo
+	ModeSymlink = "symlink"
+	// ModeDevice @todo
+	ModeDevice = "device"
+	// ModeNamedPipe @todo
+	ModeNamedPipe = "named pipe"
+	// ModeSocket @todo
+	ModeSocket = "socket"
+	// ModeIrregular @todo
+	ModeIrregular = "irregular"
+	// ModeUnknown @todo
+	ModeUnknown = "unknown"
 )
 
 // Dir @todo
@@ -96,46 +83,74 @@ type Dir struct {
 
 // DirCount @todo
 type DirCount struct {
-	// Dir @todo
+	// Dir contains the full of the directory containing one or more files that are duplicated
 	Dir string
-	// Count @todo
+	// Count contains the number of files in directory that are duplicated in other directories
 	Count uint
 }
 
 // ErrorRec @todo
 type ErrorRec struct {
-	// Path @todo
+	// Path contains the full path of the file that generated an error
 	Path string
-	// Error @todo
+	// Error contains the error message related to the file
 	Error string
 }
 
 // IgnoredRec @todo
 type IgnoredRec struct {
-	// Path @todo
+	// Path contains the full path of the ignore file
 	Path string
-	// Type @todo
+	// Type contains the type of ignored file (symlink, named pipe, etc)
 	Type string
+}
+
+// CacheRec @todo
+type CacheRec struct {
+	// Path @todo
+	Path string `csv:"path"`
+	// Size @todo
+	Size int64 `csv:"size"`
+	// ModTime @todo
+	// @todo rename to modified
+	ModTime  time.Time `csv:"mod_time"`
+	Accessed time.Time `csv:"accessed"`
+	// Mode @todo
+	Mode uint32 `csv:"mode"`
+	// Hash @todo
+	Hash string `csv:"hash"`
+	/*
+		// Created @todo
+		// @todo add created
+		Created time.Time `csv:"created"`
+		// Accessed @todo
+		// @todo add accessed
+	*/
 }
 
 // Dupless @todo
 type Dupless struct {
-	dirReport    bool
-	freq         uint
-	hash         string
-	help         bool
+	cache     string
+	dirReport bool
+	// add exclude option
+	freq uint
+	hash string
+	help bool
+	// rename to include
 	mask         string
 	minDirLength uint
 	minFiles     uint
 	minSize      uint64
 	sizeReport   bool
 	recursive    bool
+	utc          bool
 	verbose      uint
 
+	cacheFH    *os.File
 	lastVolume string
+	p          *message.Printer
+	path       string
 	volume     string
-	// path        string
-	p *message.Printer
 
 	// volume stats:
 	hits        uint
@@ -186,21 +201,21 @@ func getDir(path string, minDirLength uint) string {
 func getFileType(fi os.FileInfo) string {
 	switch mode := fi.Mode(); {
 	case mode.IsRegular():
-		return "file"
+		return ModeRegularFile
 	case mode.IsDir():
-		return "directory"
+		return ModeDirectory
 	case mode&os.ModeSymlink != 0:
-		return "symlink"
+		return ModeSymlink
 	case mode&os.ModeDevice != 0:
-		return "device"
+		return ModeDevice
 	case mode&os.ModeNamedPipe != 0:
-		return "named pipe"
+		return ModeNamedPipe
 	case mode&os.ModeSocket != 0:
-		return "socket"
+		return ModeSocket
 	case mode&os.ModeIrregular != 0:
-		return "irregular"
+		return ModeIrregular
 	}
-	return "unknown type"
+	return ModeUnknown
 }
 
 func substring(s string, start int, end int) string {
@@ -232,6 +247,7 @@ func (d *Dupless) init() {
 		minDirLength = 3
 	}
 
+	flag.StringVar(&d.cache, "cache", DefaultCache, "Cache filename")
 	flag.BoolVar(&d.dirReport, "dir_report", DefaultDirReport, "Report by directory")
 	flag.UintVar(&d.freq, "frequency", DefaultFrequency, "Reporting frequency")
 	flag.StringVar(&d.hash, "hash", DefaultHash, "Hash type")
@@ -242,6 +258,7 @@ func (d *Dupless) init() {
 	flag.Uint64Var(&d.minSize, "min_size", DefaultMinSize, "Minimum file size")
 	flag.BoolVar(&d.sizeReport, "size_report", DefaultSizeReport, "Report by size")
 	flag.BoolVar(&d.recursive, "recursive", DefaultRecursive, "Report directories recursively")
+	flag.BoolVar(&d.utc, "utc", DefaultUTC, "Report times in UTC")
 	flag.UintVar(&d.verbose, "verbose", DefaultVerbose, "Be more verbose")
 
 	d.dirs = make(map[string]*Dir)
@@ -249,6 +266,78 @@ func (d *Dupless) init() {
 	d.errorDirs = make(map[string][]*ErrorRec)
 	d.ignoredDirs = make(map[string][]*IgnoredRec)
 	d.p = message.NewPrinter(language.English)
+
+	if d.cache != "" {
+		var err error
+		log.Printf("Opening %s", d.cache)
+		d.cacheFH, err = os.OpenFile(d.cache, os.O_RDWR|os.O_CREATE, 0600)
+		if err != nil {
+			panic(err)
+		}
+		pos, err := d.cacheFH.Seek(0, os.SEEK_END)
+		if err != nil {
+			panic(err)
+		}
+		if pos == 0 {
+			// @todo rename to modified
+			_, err = d.cacheFH.WriteString("path,size,mod_type,mode,hash\n")
+			if err != nil {
+				panic(err)
+			}
+		}
+		_, err = d.cacheFH.Seek(0, os.SEEK_SET)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func (d *Dupless) readCache() error {
+	if d.cacheFH == nil {
+		return nil
+	}
+	fmt.Printf("Loading from cache\n")
+
+	/*
+		gocsv.SetCSVReader(func(in io.Reader) gocsv.CSVReader {
+			r := csv.NewReader(in)
+			r.Comma = '\t'
+			r.Comment = '#'
+			r.FieldsPerRecord = -1
+			r.LazyQuotes = true
+			r.TrimLeadingSpace = true
+			return r
+		})
+	*/
+	err := gocsv.UnmarshalToCallback(d.cacheFH, func(s CacheRec) {
+		// @todo load d.dirs & d.dups
+		fmt.Printf("s=%+v\n", s)
+	})
+	if err != nil {
+		panic(err)
+	}
+	return nil
+}
+
+func (d *Dupless) writeCache(cr CacheRec) (err error) {
+	if d.cacheFH == nil {
+		return nil
+	}
+	var acr []CacheRec
+	acr = make([]CacheRec, 1)
+	acr[0] = cr
+	err = gocsv.MarshalWithoutHeaders(&acr, d.cacheFH)
+	if err != nil {
+		panic(err)
+	}
+	return nil
+}
+
+func (d *Dupless) close() {
+	if d.cacheFH != nil {
+		d.cacheFH.Close()
+		d.cacheFH = nil
+	}
 }
 
 func (d *Dupless) addPath(path string, size uint64) {
@@ -397,7 +486,12 @@ func (d *Dupless) reportBySize() {
 		}
 	}
 
-	d.p.Printf("\n%d files totaling %d bytes (%d bytes per file average)\n", files, totalSize, totalSize/files)
+	var avg uint64
+	if files > 0 {
+		avg = totalSize / files
+	}
+
+	d.p.Printf("\n%d files totaling %d bytes (%d bytes per file average)\n", files, totalSize, avg)
 }
 
 func (d *Dupless) reportIgnored() {
@@ -422,48 +516,55 @@ func (d *Dupless) reportIgnored() {
 	}
 }
 
-func (d *Dupless) visit(path string, f os.FileInfo, err error) error {
+func (d *Dupless) getVolume() {
+	if runtime.GOOS == "windows" {
+		d.volume = substring(d.path, 0, 2)
+		return
+	}
+	/*
+		// https://groups.google.com/forum/#!topic/golang-nuts/mu8XMmRXMOk
+		// https://stackoverflow.com/q/19513874/1432614 :
+		  mntpoint, err := os.Stat(mountpoint)
+		   if err != nil {
+			   if os.IsNotExist(err) {
+					   return false, nil
+			   }
+			   return false, err
+		   }
+		   parent, err := os.Stat(filepath.Join(mountpoint, ".."))
+		   if err != nil {
+			   return false, err
+		   }
+		   mntpointSt := mntpoint.Sys().(*syscall.Stat_t)
+		   parentSt := parent.Sys().(*syscall.Stat_t)
+		   return mntpointSt.Dev != parentSt.Dev, nil
+	*/
+}
+
+func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 	for {
 		d.hits++
-		if runtime.GOOS == "windows" {
-			d.volume = substring(path, 0, 2)
-		} else {
-			/*
-			   	// https://groups.google.com/forum/#!topic/golang-nuts/mu8XMmRXMOk
-			   	// https://stackoverflow.com/q/19513874/1432614 :
-			      mntpoint, err := os.Stat(mountpoint)
-			       if err != nil {
-			           if os.IsNotExist(err) {
-			                   return false, nil
-			           }
-			           return false, err
-			       }
-			       parent, err := os.Stat(filepath.Join(mountpoint, ".."))
-			       if err != nil {
-			           return false, err
-			       }
-			       mntpointSt := mntpoint.Sys().(*syscall.Stat_t)
-			       parentSt := parent.Sys().(*syscall.Stat_t)
-			       return mntpointSt.Dev != parentSt.Dev, nil
-			*/
-		}
-		fi, err := os.Lstat(path)
-		if err != nil {
-			s := fmt.Sprintf("Cannot lstat '%s': %s", path, err)
-			d.addError(path, s)
-			break
+		d.path = path
+		d.getVolume()
+		if fi == nil {
+			fi, err = os.Lstat(path)
+			if err != nil {
+				s := fmt.Sprintf("Cannot lstat '%s': %s", path, err)
+				d.addError(path, s)
+				break
+			}
 		}
 		typ := getFileType(fi)
 
-		if typ == "directory" {
+		if typ == ModeDirectory {
 			d.directories++
 			break
 		}
-		if typ == "symlink" {
+		if typ == ModeSymlink {
 			d.ignored++
 			break
 		}
-		if typ != "file" {
+		if typ != ModeRegularFile {
 			d.addIgnore(path, typ)
 			break
 		}
@@ -501,7 +602,8 @@ func (d *Dupless) visit(path string, f os.FileInfo, err error) error {
 		defer fh.Close()
 
 		var h hash.Hash
-		
+
+		// @todo move to constant
 		skey := "0000000000000000000000000000000000000000000000000000000000000000"
 		key, _ := hex.DecodeString(skey)
 
@@ -546,6 +648,31 @@ func (d *Dupless) visit(path string, f os.FileInfo, err error) error {
 			d.dups[size][hash] = make([]string, 0)
 		}
 		d.dups[size][hash] = append(d.dups[size][hash], path)
+		/* @TODO
+		if os.PathSeparator == '\\' {
+			path = strings.Replace(path, `\`, "/", -1)
+		}
+		*/
+		mtime := fi.ModTime()
+		/*
+			ctime := Ctime(fi)
+			atime := Atime(fi)
+			if d.utc {
+				ctime = ctime.UTC()
+				mtime = mtime.UTC()
+				atime = atime.UTC()
+			}
+		*/
+		cr := CacheRec{
+			Path:    path,
+			Size:    fi.Size(),
+			ModTime: mtime,
+			Mode:    uint32(fi.Mode()),
+			Hash:    hash,
+			// Created:  ctime,
+			// Accessed: atime,
+		}
+		d.writeCache(cr)
 		break
 	}
 
@@ -581,6 +708,8 @@ func main() {
 
 	dupless.p.Printf("\nMinimum size: %d\n\n", dupless.minSize)
 
+	dupless.readCache()
+
 	fmt.Printf("    skipped     matched directories     ignored      errors volume\n")
 	fmt.Printf("----------- ----------- ----------- ----------- ----------- ------\n")
 
@@ -595,6 +724,8 @@ func main() {
 			fmt.Fprintln(os.Stderr, "\nWalk returned:", err)
 		}
 	}
+
+	dupless.close()
 
 	dupless.progress(true)
 	if dupless.dirReport {
