@@ -1,6 +1,6 @@
-# rasa/godupless
+# godupless
 
-One paragraph of project description goes here
+godupless reports on duplicate files across multiple volumes
 
 ## Getting Started
 
