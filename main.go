@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +34,8 @@ const (
 	DefaultCache = "godupless.cache"
 	// DefaultDirReport @todo
 	DefaultDirReport = false
+	// DefaultExtra @todo
+	DefaultExtra = false
 	// DefaultFrequency @todo
 	DefaultFrequency = 100
 	// DefaultHash @todo
@@ -46,6 +50,8 @@ const (
 	DefaultMinSize = 2 << 20 // 16M
 	// DefaultRecursive @todo
 	DefaultRecursive = false
+	// DefaultSeparator @todo
+	DefaultSeparator = ","
 	// DefaultSizeReport @todo
 	DefaultSizeReport = true
 	// DefaultUTC @todo
@@ -76,7 +82,7 @@ const (
 // Dir @todo
 type Dir struct {
 	// Count @todo
-	Count uint
+	Count uint64
 	// Size @todo
 	Size uint64
 }
@@ -86,7 +92,7 @@ type DirCount struct {
 	// Dir contains the full of the directory containing one or more files that are duplicated
 	Dir string
 	// Count contains the number of files in directory that are duplicated in other directories
-	Count uint
+	Count uint64
 }
 
 // ErrorRec @todo
@@ -110,32 +116,35 @@ type CacheRec struct {
 	// Path @todo
 	Path string `csv:"path"`
 	// Size @todo
-	Size int64 `csv:"size"`
+	Size uint64 `csv:"size"`
 	// ModTime @todo
 	// @todo rename to modified
-	ModTime  time.Time `csv:"mod_time"`
-	Accessed time.Time `csv:"accessed"`
-	// Mode @todo
-	Mode uint32 `csv:"mode"`
+	ModTime time.Time `csv:"mod_time"`
 	// Hash @todo
 	Hash string `csv:"hash"`
-	/*
-		// Created @todo
-		// @todo add created
-		Created time.Time `csv:"created"`
-		// Accessed @todo
-		// @todo add accessed
-	*/
+	// @todo add switch to add/exclude mode/created/accessed
+	// Mode @todo
+	Mode string `csv:"mode,omitempty"`
+	// @todo add created
+	// Created @todo
+	Created string `csv:"created,omitempty"`
+	// @todo add accessed
+	// Accessed @todo
+	Accessed string `csv:"accessed,omitempty"`
+	// Valid
+	Valid bool `csv:"-"`
 }
 
 // Dupless @todo
 type Dupless struct {
 	cache     string
+	separator string
 	dirReport bool
 	// add exclude option
-	freq uint
-	hash string
-	help bool
+	extra bool
+	freq  uint
+	hash  string
+	help  bool
 	// rename to include
 	mask         string
 	minDirLength uint
@@ -147,6 +156,7 @@ type Dupless struct {
 	verbose      uint
 
 	cacheFH    *os.File
+	comma      rune
 	lastVolume string
 	p          *message.Printer
 	path       string
@@ -163,6 +173,7 @@ type Dupless struct {
 	errorDirs   map[string][]*ErrorRec
 	ignoredDirs map[string][]*IgnoredRec
 	dups        map[uint64]map[string][]string
+	files       map[string]*CacheRec
 }
 
 // Uint64Slice @todo
@@ -174,6 +185,8 @@ func (p Uint64Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 // Sort is a convenience method.
 func (p Uint64Slice) Sort() { sort.Sort(p) }
+
+// utility functions
 
 func dump(s string, x interface{}) {
 	if s != "" {
@@ -249,27 +262,55 @@ func (d *Dupless) init() {
 
 	flag.StringVar(&d.cache, "cache", DefaultCache, "Cache filename")
 	flag.BoolVar(&d.dirReport, "dir_report", DefaultDirReport, "Report by directory")
+	flag.BoolVar(&d.extra, "extra", DefaultExtra, "Cache extra attributes")
 	flag.UintVar(&d.freq, "frequency", DefaultFrequency, "Reporting frequency")
 	flag.StringVar(&d.hash, "hash", DefaultHash, "Hash type")
 	flag.BoolVar(&d.help, "help", false, "Display help")
 	flag.StringVar(&d.mask, "mask", DefaultMask, "File mask")
-	flag.UintVar(&d.minFiles, "min_files", DefaultMinFiles, "Minimum files")
 	flag.UintVar(&d.minDirLength, "min_dir_len", minDirLength, "Minimum directory length")
+	flag.UintVar(&d.minFiles, "min_files", DefaultMinFiles, "Minimum files")
 	flag.Uint64Var(&d.minSize, "min_size", DefaultMinSize, "Minimum file size")
-	flag.BoolVar(&d.sizeReport, "size_report", DefaultSizeReport, "Report by size")
 	flag.BoolVar(&d.recursive, "recursive", DefaultRecursive, "Report directories recursively")
+	flag.BoolVar(&d.sizeReport, "size_report", DefaultSizeReport, "Report by size")
+	flag.StringVar(&d.separator, "separator", DefaultSeparator, "Field separator")
 	flag.BoolVar(&d.utc, "utc", DefaultUTC, "Report times in UTC")
 	flag.UintVar(&d.verbose, "verbose", DefaultVerbose, "Be more verbose")
+
+	flag.Parse()
+
+	value, _ /*multibyte*/, _ /*tail*/, err := strconv.UnquoteChar(d.separator, 0)
+	if err != nil {
+		panic(err)
+	}
+	d.comma = value
 
 	d.dirs = make(map[string]*Dir)
 	d.dups = make(map[uint64]map[string][]string)
 	d.errorDirs = make(map[string][]*ErrorRec)
 	d.ignoredDirs = make(map[string][]*IgnoredRec)
 	d.p = message.NewPrinter(language.English)
+	d.files = make(map[string]*CacheRec)
 
 	if d.cache != "" {
-		var err error
 		log.Printf("Opening %s", d.cache)
+
+		gocsv.SetCSVReader(func(in io.Reader) gocsv.CSVReader {
+			r := csv.NewReader(in)
+			r.Comma = d.comma
+			r.Comment = '#'
+			r.FieldsPerRecord = -1
+			r.LazyQuotes = true
+			r.TrimLeadingSpace = true
+			return r
+		})
+
+		gocsv.SetCSVWriter(func(out io.Writer) *gocsv.SafeCSVWriter {
+			w := csv.NewWriter(out)
+			w.Comma = d.comma
+			return gocsv.NewSafeCSVWriter(w)
+		})
+
+		var err error
 		d.cacheFH, err = os.OpenFile(d.cache, os.O_RDWR|os.O_CREATE, 0600)
 		if err != nil {
 			panic(err)
@@ -278,9 +319,23 @@ func (d *Dupless) init() {
 		if err != nil {
 			panic(err)
 		}
+
+		fields := []string{
+			"path",
+			"size",
+			"mod_type",
+			"hash",
+		}
+
+		if d.extra {
+			fields = append(fields, "mode")
+			fields = append(fields, "created")
+			fields = append(fields, "accessed")
+		}
 		if pos == 0 {
 			// @todo rename to modified
-			_, err = d.cacheFH.WriteString("path,size,mod_type,mode,hash\n")
+			header := strings.Join(fields, string(d.comma)) + "\n"
+			_, err = d.cacheFH.WriteString(header)
 			if err != nil {
 				panic(err)
 			}
@@ -298,20 +353,8 @@ func (d *Dupless) readCache() error {
 	}
 	fmt.Printf("Loading from cache\n")
 
-	/*
-		gocsv.SetCSVReader(func(in io.Reader) gocsv.CSVReader {
-			r := csv.NewReader(in)
-			r.Comma = '\t'
-			r.Comment = '#'
-			r.FieldsPerRecord = -1
-			r.LazyQuotes = true
-			r.TrimLeadingSpace = true
-			return r
-		})
-	*/
-	err := gocsv.UnmarshalToCallback(d.cacheFH, func(s CacheRec) {
-		// @todo load d.dirs & d.dups
-		fmt.Printf("s=%+v\n", s)
+	err := gocsv.UnmarshalToCallback(d.cacheFH, func(cr *CacheRec) {
+		d.files[cr.Path] = cr
 	})
 	if err != nil {
 		panic(err)
@@ -319,12 +362,12 @@ func (d *Dupless) readCache() error {
 	return nil
 }
 
-func (d *Dupless) writeCache(cr CacheRec) (err error) {
+func (d *Dupless) writeCache(cr *CacheRec) (err error) {
+	d.files[cr.Path] = cr
 	if d.cacheFH == nil {
 		return nil
 	}
-	var acr []CacheRec
-	acr = make([]CacheRec, 1)
+	acr := make([]*CacheRec, 1)
 	acr[0] = cr
 	err = gocsv.MarshalWithoutHeaders(&acr, d.cacheFH)
 	if err != nil {
@@ -440,8 +483,8 @@ func (d *Dupless) reportByDir() {
 	}
 	sort.Sort(sort.Reverse(Uint64Slice(sizes)))
 
-	totalSize := uint64(0)
-	files := uint64(0)
+	var totalSize uint64
+	var files uint64
 
 	for _, size := range sizes {
 		emitSize := true
@@ -452,7 +495,7 @@ func (d *Dupless) reportByDir() {
 				emitSize = false
 			}
 			fmt.Printf("  %d: %v (%d)\n", i+1, dircount.Dir, dircount.Count)
-			files += uint64(dircount.Count)
+			files += dircount.Count
 		}
 	}
 	d.p.Printf("\n%d files totaling %d bytes (%d bytes per file average)\n", files, totalSize, totalSize/files)
@@ -469,8 +512,8 @@ func (d *Dupless) reportBySize() {
 	}
 	sort.Sort(sort.Reverse(Uint64Slice(sizes)))
 
-	totalSize := uint64(0)
-	files := uint64(0)
+	var totalSize uint64
+	var files uint64
 
 	for _, size := range sizes {
 		for hash, paths := range d.dups[size] {
@@ -541,6 +584,30 @@ func (d *Dupless) getVolume() {
 	*/
 }
 
+func (d *Dupless) summarize() {
+	for file, cr := range d.files {
+		if !cr.Valid {
+			delete(d.files, file)
+		}
+	}
+
+	for _, cr := range d.files {
+		size := cr.Size
+		hash := cr.Hash
+		path := cr.Path
+
+		_, ok := d.dups[size]
+		if !ok {
+			d.dups[size] = make(map[string][]string)
+		}
+		_, ok = d.dups[size][hash]
+		if !ok {
+			d.dups[size][hash] = make([]string, 0)
+		}
+		d.dups[size][hash] = append(d.dups[size][hash], path)
+	}
+}
+
 func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 	for {
 		d.hits++
@@ -569,8 +636,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			break
 		}
 
-		size := uint64(fi.Size())
-		if size <= d.minSize {
+		if uint64(fi.Size()) <= d.minSize {
 			d.skipped++
 			break
 		}
@@ -587,6 +653,14 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			}
 			if !ok {
 				d.skipped++
+				break
+			}
+		}
+
+		file, ok := d.files[path]
+		if ok {
+			if file.Size == uint64(fi.Size()) && file.ModTime == fi.ModTime() {
+				file.Valid = true
 				break
 			}
 		}
@@ -639,40 +713,33 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 		d.matched++
 
 		hash := fmt.Sprintf("%x", h.Sum(nil))
-		_, ok := d.dups[size]
-		if !ok {
-			d.dups[size] = make(map[string][]string)
-		}
-		_, ok = d.dups[size][hash]
-		if !ok {
-			d.dups[size][hash] = make([]string, 0)
-		}
-		d.dups[size][hash] = append(d.dups[size][hash], path)
+
 		/* @TODO
 		if os.PathSeparator == '\\' {
 			path = strings.Replace(path, `\`, "/", -1)
 		}
 		*/
 		mtime := fi.ModTime()
-		/*
-			ctime := Ctime(fi)
-			atime := Atime(fi)
-			if d.utc {
-				ctime = ctime.UTC()
-				mtime = mtime.UTC()
-				atime = atime.UTC()
-			}
-		*/
+		ctime := Ctime(fi)
+		atime := Atime(fi)
+		if d.utc {
+			ctime = ctime.UTC()
+			mtime = mtime.UTC()
+			atime = atime.UTC()
+		}
 		cr := CacheRec{
 			Path:    path,
-			Size:    fi.Size(),
+			Size:    uint64(fi.Size()),
 			ModTime: mtime,
-			Mode:    uint32(fi.Mode()),
 			Hash:    hash,
-			// Created:  ctime,
-			// Accessed: atime,
+			Valid:   true,
 		}
-		d.writeCache(cr)
+		if d.extra {
+			cr.Mode = fmt.Sprintf("0%o", fi.Mode())
+			cr.Created = ctime.Format(time.RFC3339Nano)
+			cr.Accessed = atime.Format(time.RFC3339Nano)
+		}
+		d.writeCache(&cr)
 		break
 	}
 
@@ -728,6 +795,9 @@ func main() {
 	dupless.close()
 
 	dupless.progress(true)
+
+	dupless.summarize()
+
 	if dupless.dirReport {
 		dupless.reportByDir()
 	}
