@@ -117,9 +117,8 @@ type CacheRec struct {
 	Path string `csv:"path"`
 	// Size @todo
 	Size uint64 `csv:"size"`
-	// ModTime @todo
-	// @todo rename to modified
-	ModTime time.Time `csv:"mod_time"`
+	// Modified @todo
+	Modified time.Time `csv:"modified"`
 	// Hash @todo
 	Hash string `csv:"hash"`
 	// @todo add switch to add/exclude mode/created/accessed
@@ -323,7 +322,7 @@ func (d *Dupless) init() {
 		fields := []string{
 			"path",
 			"size",
-			"mod_type",
+			"modified",
 			"hash",
 		}
 
@@ -636,7 +635,9 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			break
 		}
 
-		if uint64(fi.Size()) <= d.minSize {
+		size := uint64(fi.Size())
+
+		if size <= d.minSize {
 			d.skipped++
 			break
 		}
@@ -659,7 +660,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 
 		file, ok := d.files[path]
 		if ok {
-			if file.Size == uint64(fi.Size()) && file.ModTime == fi.ModTime() {
+			if file.Size == size && file.Modified == fi.ModTime() {
 				file.Valid = true
 				break
 			}
@@ -728,11 +729,11 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			atime = atime.UTC()
 		}
 		cr := CacheRec{
-			Path:    path,
-			Size:    uint64(fi.Size()),
-			ModTime: mtime,
-			Hash:    hash,
-			Valid:   true,
+			Path:     path,
+			Size:     size,
+			Modified: mtime,
+			Hash:     hash,
+			Valid:    true,
 		}
 		if d.extra {
 			cr.Mode = fmt.Sprintf("0%o", fi.Mode())
