@@ -1,4 +1,4 @@
-// +build darwin,freebsd,netbsd,openbsd
+// +build darwin freebsd netbsd openbsd
 
 package main
 
@@ -17,10 +17,10 @@ func timespecToTime(ts syscall.Timespec) time.Time {
 
 // Ctime @todo
 func Ctime(fi os.FileInfo) time.Time {
-	return timespecToTime(fi.Sys().(*syscall.Stat_t).Ctim)
+	return timespecToTime(fi.Sys().(*syscall.Stat_t).Ctimespec)
 }
 
 // Atime @todo
 func Atime(fi os.FileInfo) time.Time {
-	return timespecToTime(fi.Sys().(*syscall.Stat_t).Atim)
+	return timespecToTime(fi.Sys().(*syscall.Stat_t).Atimespec)
 }
