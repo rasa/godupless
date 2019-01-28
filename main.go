@@ -643,8 +643,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 		d.getDev(fi, path)
 		if d.lastDev != d.dev {
 			if d.lastDev != "" {
-				fmt.Println("")
-				// @todo temporary
+				fmt.Print("\nOn device %s, found %s\n", d.lastDev, d.dev)
 				return filepath.SkipDir
 			}
 			d.lastDev = d.dev
@@ -818,6 +817,7 @@ func main() {
 	fmt.Printf("----------- ----------- ----------- ----------- ----------- ------\n")
 
 	for _, arg := range flag.Args() {
+		dupless.lastDev = ""
 		if runtime.GOOS == "windows" {
 			if len(arg) == 2 && arg[1] == ':' {
 				arg += string(os.PathSeparator)
