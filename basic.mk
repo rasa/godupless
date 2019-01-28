@@ -177,6 +177,7 @@ clean: ## Cleanup any build binaries or packages.
 	@echo "+ $@"
 	$(RM) $(NAME)$(EXE_EXT)
 	-$(RM) -r $(BUILDDIR)
+	go clean -cache
 
 .PHONY: gofmt
 gofmt: ## Format all .go files via `gofmt -s` (simplify)
