@@ -1,4 +1,4 @@
-// +build dragonfly linux solaris
+// +build dragonfly linux openbsd solaris
 
 package main
 
