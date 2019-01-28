@@ -22,7 +22,7 @@ func visit(path string, fi os.FileInfo, err error) error {
 }
 
 // GetDev @todo
-func GetDev(fi os.FileInfo, path string) string {
+func VolumeName(fi os.FileInfo, path string) string {
 	if len(devMap) == 0 {
 		err := filepath.Walk("/dev", visit)
 		if err != nil {

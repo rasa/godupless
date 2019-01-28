@@ -572,29 +572,6 @@ func (d *Dupless) reportIgnored() {
 	}
 }
 
-func (d *Dupless) getDev(fi os.FileInfo, path string) {
-	d.dev = GetDev(fi, path)
-
-	/*
-		// https://groups.google.com/forum/#!topic/golang-nuts/mu8XMmRXMOk
-		// https://stackoverflow.com/q/19513874/1432614 :
-		  mntpoint, err := os.Stat(mountpoint)
-		   if err != nil {
-			   if os.IsNotExist(err) {
-					   return false, nil
-			   }
-			   return false, err
-		   }
-		   parent, err := os.Stat(filepath.Join(mountpoint, ".."))
-		   if err != nil {
-			   return false, err
-		   }
-		   mntpointSt := mntpoint.Sys().(*syscall.Stat_t)
-		   parentSt := parent.Sys().(*syscall.Stat_t)
-		   return mntpointSt.Dev != parentSt.Dev, nil
-	*/
-}
-
 func (d *Dupless) summarize() {
 	fmt.Println("Summarizing data")
 
@@ -652,7 +629,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 				break
 			}
 		}
-		d.getDev(fi, path)
+		d.dev = VolumeName(fi, path)
 		if d.lastDev != d.dev {
 			if d.lastDev != "" {
 				fmt.Printf("\nSkipping %s as it is on device %s\n", path, d.dev)
