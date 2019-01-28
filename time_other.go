@@ -1,4 +1,4 @@
-// +build nacl js,wasm 
+// +build nacl js,wasm
 
 package main
 

@@ -73,8 +73,9 @@ const (
 	ModeNamedPipe = "named pipe"
 	// ModeSocket @todo
 	ModeSocket = "socket"
+	// added in go 1.11:
 	// ModeIrregular @todo
-	ModeIrregular = "irregular"
+	//ModeIrregular = "irregular"
 	// ModeUnknown @todo
 	ModeUnknown = "unknown"
 )
@@ -224,8 +225,9 @@ func getFileType(fi os.FileInfo) string {
 		return ModeNamedPipe
 	case mode&os.ModeSocket != 0:
 		return ModeSocket
-	case mode&os.ModeIrregular != 0:
-		return ModeIrregular
+		// added in go 1.11:
+		//case mode&os.ModeIrregular != 0:
+		//	return ModeIrregular
 	}
 	return ModeUnknown
 }
