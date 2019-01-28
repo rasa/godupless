@@ -16,6 +16,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	//	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -34,6 +35,8 @@ const (
 	DefaultCache = "godupless.cache"
 	// DefaultDirReport @todo
 	DefaultDirReport = false
+	// DefaultExclude @todo
+	DefaultExclude = ""
 	// DefaultExtra @todo
 	DefaultExtra = false
 	// DefaultFrequency @todo
@@ -73,9 +76,10 @@ const (
 	ModeNamedPipe = "named pipe"
 	// ModeSocket @todo
 	ModeSocket = "socket"
-	// added in go 1.11:
 	// ModeIrregular @todo
-	//ModeIrregular = "irregular"
+	// added in go 1.11:
+	// ModeIrregular = "irregular"
+
 	// ModeUnknown @todo
 	ModeUnknown = "unknown"
 )
@@ -122,16 +126,13 @@ type CacheRec struct {
 	Modified time.Time `csv:"modified"`
 	// Hash @todo
 	Hash string `csv:"hash"`
-	// @todo add switch to add/exclude mode/created/accessed
 	// Mode @todo
 	Mode string `csv:"mode,omitempty"`
-	// @todo add created
 	// Created @todo
 	Created string `csv:"created,omitempty"`
-	// @todo add accessed
 	// Accessed @todo
 	Accessed string `csv:"accessed,omitempty"`
-	// Valid
+	// Valid @todo
 	Valid bool `csv:"-"`
 }
 
@@ -140,11 +141,11 @@ type Dupless struct {
 	cache     string
 	separator string
 	dirReport bool
-	// add exclude option
-	extra bool
-	freq  uint
-	hash  string
-	help  bool
+	exclude   string
+	extra     bool
+	freq      uint
+	hash      string
+	help      bool
 	// rename to include
 	mask         string
 	minDirLength uint
@@ -155,14 +156,15 @@ type Dupless struct {
 	utc          bool
 	verbose      uint
 
-	cacheFH    *os.File
-	comma      rune
-	lastVolume string
-	p          *message.Printer
-	path       string
-	volume     string
+	cacheFH  *os.File
+	comma    rune
+	excludes []string
+	lastDev  string
+	p        *message.Printer
+	path     string
+	dev      string
 
-	// volume stats:
+	// device stats:
 	hits        uint
 	skipped     uint
 	directories uint
@@ -263,6 +265,7 @@ func (d *Dupless) init() {
 
 	flag.StringVar(&d.cache, "cache", DefaultCache, "Cache filename")
 	flag.BoolVar(&d.dirReport, "dir_report", DefaultDirReport, "Report by directory")
+	flag.StringVar(&d.exclude, "exclude", DefaultExclude, "Regexs of Directories/files to exclude, separated by |")
 	flag.BoolVar(&d.extra, "extra", DefaultExtra, "Cache extra attributes")
 	flag.UintVar(&d.freq, "frequency", DefaultFrequency, "Reporting frequency")
 	flag.StringVar(&d.hash, "hash", DefaultHash, "Hash type")
@@ -278,6 +281,24 @@ func (d *Dupless) init() {
 	flag.UintVar(&d.verbose, "verbose", DefaultVerbose, "Be more verbose")
 
 	flag.Parse()
+
+	if runtime.GOOS != "windows" {
+		d.excludes = []string{
+			"^/dev$",
+			"^/proc$",
+			"^/run$",
+			"^/sys$",
+		}
+	} else {
+		d.excludes = []string{
+			"^.:.$Recycle.bin$",
+			"^.:.System Volume Information$",
+		}
+	}
+
+	if d.exclude != "" {
+		d.excludes = strings.Split(d.exclude, "|")
+	}
 
 	value, _ /*multibyte*/, _ /*tail*/, err := strconv.UnquoteChar(d.separator, 0)
 	if err != nil {
@@ -411,19 +432,8 @@ func (d *Dupless) progress(final bool) {
 	if !final && (d.freq == 0 || d.hits%d.freq != 0) {
 		return
 	}
-	if d.volume != d.lastVolume {
-		if d.lastVolume != "" {
-			d.skipped = 0
-			d.directories = 0
-			d.matched = 0
-			d.errors = 0
-			d.ignored = 0
-			fmt.Println("")
-		}
-		d.lastVolume = d.volume
-	}
 
-	d.p.Printf("\r%11d %11d %11d %11d %11d %s", d.skipped, d.matched, d.directories, d.ignored, d.errors, d.volume)
+	d.p.Printf("\r%11d %11d %11d %11d %11d %s", d.skipped, d.matched, d.directories, d.ignored, d.errors, d.dev)
 
 	if final {
 		fmt.Println("")
@@ -446,7 +456,7 @@ func (d *Dupless) addIgnore(path string, typ string) {
 	d.ignoredDirs[dir] = append(d.ignoredDirs[dir], &IgnoredRec)
 	d.ignored++
 	if d.verbose > 0 {
-		s := fmt.Sprintf("Skipping '%s' as it is a %s", path, typ)
+		s := fmt.Sprintf("Skipping '%s': %s", path, typ)
 		fmt.Fprintf(os.Stderr, "\n%s\n", s)
 	}
 }
@@ -560,11 +570,9 @@ func (d *Dupless) reportIgnored() {
 	}
 }
 
-func (d *Dupless) getVolume() {
-	if runtime.GOOS == "windows" {
-		d.volume = substring(d.path, 0, 2)
-		return
-	}
+func (d *Dupless) getDev(fi os.FileInfo, path string) {
+	d.dev = GetDev(fi, path)
+
 	/*
 		// https://groups.google.com/forum/#!topic/golang-nuts/mu8XMmRXMOk
 		// https://stackoverflow.com/q/19513874/1432614 :
@@ -610,18 +618,44 @@ func (d *Dupless) summarize() {
 }
 
 func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
+	err = nil
 	for {
 		d.hits++
+		/*
+			for _, exclude := range d.excludes {
+				ok, _ := regexp.MatchString(path, exclude)
+				if ok {
+					d.addIgnore(path, "excluded")
+					return filepath.SkipDir
+				}
+			}
+		*/
 		d.path = path
-		d.getVolume()
 		if fi == nil {
-			fi, err = os.Lstat(path)
-			if err != nil {
-				s := fmt.Sprintf("Cannot lstat '%s': %s", path, err)
+			var e error
+			fi, e = os.Lstat(path)
+			if e != nil {
+				s := fmt.Sprintf("Cannot lstat '%s': %s", path, e)
 				d.addError(path, s)
 				break
 			}
 		}
+		d.getDev(fi, path)
+		if d.lastDev != d.dev {
+			if d.lastDev != "" {
+				fmt.Println("")
+				// @todo temporary
+				return filepath.SkipDir
+			}
+			d.lastDev = d.dev
+
+			d.skipped = 0
+			d.directories = 0
+			d.matched = 0
+			d.errors = 0
+			d.ignored = 0
+		}
+
 		typ := getFileType(fi)
 
 		if typ == ModeDirectory {
@@ -646,11 +680,11 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 
 		if d.mask != "" {
 			_, file := filepath.Split(path)
-			ok, err := filepath.Match(d.mask, file)
-			if err != nil {
+			ok, e := filepath.Match(d.mask, file)
+			if e != nil {
 				d.errors++
 				if d.verbose > 0 {
-					fmt.Fprintf(os.Stderr, "\nCannot match '%s' using %s: %s\n", path, d.mask, err)
+					fmt.Fprintf(os.Stderr, "\nCannot match '%s' using %s: %s\n", path, d.mask, e)
 				}
 				break
 			}
@@ -668,11 +702,11 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			}
 		}
 
-		fh, err := os.Open(path)
-		if err != nil {
+		fh, e := os.Open(path)
+		if e != nil {
 			d.errors++
 			if d.verbose > 0 {
-				fmt.Fprintf(os.Stderr, "\nCannot open '%s': %s\n", path, err)
+				fmt.Fprintf(os.Stderr, "\nCannot open '%s': %s\n", path, e)
 			}
 			break
 		}
@@ -704,11 +738,11 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			os.Exit(1)
 		}
 
-		_, err = io.Copy(h, fh)
-		if err != nil {
+		_, e = io.Copy(h, fh)
+		if e != nil {
 			d.errors++
 			if d.verbose > 0 {
-				fmt.Fprintf(os.Stderr, "\nCannot read '%s': %s\n", path, err)
+				fmt.Fprintf(os.Stderr, "\nCannot read '%s': %s\n", path, e)
 			}
 			break
 		}
@@ -747,7 +781,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 	}
 
 	d.progress(false)
-	return nil
+	return err
 }
 
 func usage() {
@@ -780,7 +814,7 @@ func main() {
 
 	dupless.readCache()
 
-	fmt.Printf("    skipped     matched directories     ignored      errors volume\n")
+	fmt.Printf("    skipped     matched directories     ignored      errors device\n")
 	fmt.Printf("----------- ----------- ----------- ----------- ----------- ------\n")
 
 	for _, arg := range flag.Args() {
