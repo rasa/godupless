@@ -643,7 +643,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 		d.getDev(fi, path)
 		if d.lastDev != d.dev {
 			if d.lastDev != "" {
-				fmt.Printf("\nOn device %s, found %s: %s\n", d.lastDev, d.dev, path)
+				fmt.Printf("\nSkipping %s as it is on device %s\n", path, d.dev)
 				return filepath.SkipDir
 			}
 			d.lastDev = d.dev
