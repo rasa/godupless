@@ -16,7 +16,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	//	"regexp"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -282,6 +282,8 @@ func (d *Dupless) init() {
 
 	flag.Parse()
 
+	d.hash = strings.ToLower(d.hash)
+
 	if runtime.GOOS != "windows" {
 		d.excludes = []string{
 			"^/dev$",
@@ -357,6 +359,7 @@ func (d *Dupless) init() {
 		if pos == 0 {
 			// @todo rename to modified
 			header := strings.Join(fields, string(d.comma)) + "\n"
+			header += fmt.Sprintf("#godupless|%s|%s\n", version.VERSION, d.hash)
 			_, err = d.cacheFH.WriteString(header)
 			if err != nil {
 				panic(err)
@@ -446,7 +449,7 @@ func (d *Dupless) addError(path string, s string) {
 	d.errorDirs[dir] = append(d.errorDirs[dir], &errorRec)
 	d.errors++
 	if d.verbose > 0 {
-		fmt.Fprintln(os.Stderr, s)
+		fmt.Fprintf(os.Stderr, "\n%s\n", s)
 	}
 }
 
@@ -456,8 +459,7 @@ func (d *Dupless) addIgnore(path string, typ string) {
 	d.ignoredDirs[dir] = append(d.ignoredDirs[dir], &IgnoredRec)
 	d.ignored++
 	if d.verbose > 0 {
-		s := fmt.Sprintf("Skipping '%s': %s", path, typ)
-		fmt.Fprintf(os.Stderr, "\n%s\n", s)
+		fmt.Fprintf(os.Stderr, "\nSkipping '%s': %s\n", path, typ)
 	}
 }
 
@@ -505,7 +507,7 @@ func (d *Dupless) reportByDir() {
 				fmt.Printf("size: %d\n", size)
 				emitSize = false
 			}
-			fmt.Printf("  %d: %v (%d)\n", i+1, dircount.Dir, dircount.Count)
+			fmt.Printf("  %d: %v (%d files)\n", i+1, dircount.Dir, dircount.Count)
 			files += dircount.Count
 		}
 	}
@@ -594,6 +596,8 @@ func (d *Dupless) getDev(fi os.FileInfo, path string) {
 }
 
 func (d *Dupless) summarize() {
+	fmt.Println("Summarizing data")
+
 	for file, cr := range d.files {
 		if !cr.Valid {
 			delete(d.files, file)
@@ -618,18 +622,26 @@ func (d *Dupless) summarize() {
 }
 
 func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
+	if err != nil {
+		if d.verbose > 0 {
+			fmt.Fprintf(os.Stderr, "\nError on '%s': %s\n", path, err)
+		}
+	}
+
 	err = nil
 	for {
 		d.hits++
-		/*
-			for _, exclude := range d.excludes {
-				ok, _ := regexp.MatchString(path, exclude)
-				if ok {
-					d.addIgnore(path, "excluded")
-					return filepath.SkipDir
-				}
+		for _, exclude := range d.excludes {
+			ok, e := regexp.MatchString(exclude, path)
+			if e != nil {
+				s := fmt.Sprintf("Failed to match '%s' via '%s': %s", path, exclude, e)
+				d.addError(path, s)
 			}
-		*/
+			if ok {
+				d.addIgnore(path, "excluded")
+				return filepath.SkipDir
+			}
+		}
 		d.path = path
 		if fi == nil {
 			var e error
@@ -647,12 +659,6 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 				return filepath.SkipDir
 			}
 			d.lastDev = d.dev
-
-			d.skipped = 0
-			d.directories = 0
-			d.matched = 0
-			d.errors = 0
-			d.ignored = 0
 		}
 
 		typ := getFileType(fi)
@@ -718,22 +724,22 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 		key, _ := hex.DecodeString(skey)
 
 		switch d.hash {
-		case "highway64", "Highway64", "HIGHWAY64", "highway", "Highway", "HIGHWAY":
+		case "highway64", "highway":
 			h, _ = highwayhash.New64(key)
-		case "highway128", "Highway128", "HIGHWAY128":
+		case "highway128":
 			h, _ = highwayhash.New128(key)
-		case "highway256", "Highway256", "HIGHWAY256":
+		case "highway256":
 			h, _ = highwayhash.New(key)
-		case "md5", "MD5":
+		case "md5":
 			h = md5.New()
-		case "sha1", "SHA1":
+		case "sha1":
 			h = sha1.New()
-		case "sha256", "SHA256":
+		case "sha256":
 			h = sha256.New()
-		case "sha512", "SHA512":
+		case "sha512":
 			h = sha512.New()
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown hash format: '%s'\n", d.hash)
+			fmt.Fprintf(os.Stderr, "\nUnknown hash format: '%s'\n", d.hash)
 			os.Exit(1)
 		}
 
@@ -783,6 +789,14 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 	return err
 }
 
+func (d *Dupless) resetCounters() {
+	d.skipped = 0
+	d.directories = 0
+	d.matched = 0
+	d.errors = 0
+	d.ignored = 0
+}
+
 func usage() {
 	fmt.Fprintf(os.Stderr, "\nUsage: %s [options] path [path2] ...\nOptions:\n\n", os.Args[0])
 	flag.PrintDefaults()
@@ -827,12 +841,12 @@ func main() {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "\nWalk returned:", err)
 		}
+		dupless.resetCounters()
+		fmt.Println("")
 	}
 
 	dupless.close()
-
 	dupless.progress(true)
-
 	dupless.summarize()
 
 	if dupless.dirReport {
