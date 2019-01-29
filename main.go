@@ -351,15 +351,25 @@ func (d *Dupless) init() {
 			"hash",
 		}
 
+		fields2 := []string{
+			fmt.Sprintf("#godupless/%s/%s", version.VERSION, d.hash),
+			"0",
+			time.Now().Format(time.RFC3339),
+			"",
+		}
+		
 		if d.extra {
 			fields = append(fields, "mode")
 			fields = append(fields, "created")
 			fields = append(fields, "accessed")
+			fields2 = append(fields2, "")
+			fields2 = append(fields2, "")
+			fields2 = append(fields2, "")
 		}
 		if pos == 0 {
 			// @todo rename to modified
 			header := strings.Join(fields, string(d.comma)) + "\n"
-			header += fmt.Sprintf("#godupless|%s|%s\n", version.VERSION, d.hash)
+			header += strings.Join(fields2, string(d.comma)) + "\n"
 			_, err = d.cacheFH.WriteString(header)
 			if err != nil {
 				panic(err)
