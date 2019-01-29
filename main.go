@@ -293,8 +293,8 @@ func (d *Dupless) init() {
 		}
 	} else {
 		d.excludes = []string{
-			"^.:.$Recycle.bin$",
-			"^.:.System Volume Information$",
+			`(?i)^[A-Z]:[\/]\$Recycle\.bin$`,
+			`(?i)^[A-Z]:[\/]System Volume Information$`,
 		}
 	}
 
