@@ -711,11 +711,11 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 		key, _ := hex.DecodeString(skey)
 
 		switch d.hash {
-		case "highway64", "highway":
+		case "highway64":
 			h, _ = highwayhash.New64(key)
 		case "highway128":
 			h, _ = highwayhash.New128(key)
-		case "highway256":
+		case "highway256", "highway":
 			h, _ = highwayhash.New(key)
 		case "md5":
 			h = md5.New()
