@@ -2,11 +2,11 @@
 package main
 
 import (
+	"bufio"
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gocarina/gocsv"
 	"github.com/minio/highwayhash"
+	"github.com/rasa/godupless/file"
 	"github.com/rasa/godupless/version"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -33,6 +33,8 @@ import (
 const (
 	// DefaultCache @todo
 	DefaultCache = "godupless.cache"
+	// DefaultChunk @todo
+	DefaultChunk = 4096
 	// DefaultDirReport @todo
 	DefaultDirReport = false
 	// DefaultExclude @todo
@@ -43,6 +45,8 @@ const (
 	DefaultFrequency = 100
 	// DefaultHash @todo
 	DefaultHash = "highway"
+	// DefaultIexclude @todo
+	DefaultIexclude = ""
 	// DefaultMask @todo
 	DefaultMask = ""
 	// DefaultMinFiles @todo
@@ -50,7 +54,7 @@ const (
 	// DefaultMinDirLength @todo
 	DefaultMinDirLength = uint(2)
 	// DefaultMinSize @todo
-	DefaultMinSize = 2 << 20 // 16M
+	DefaultMinSize = 2 << 20 // 20= 2,097,152 24=33,554,432
 	// DefaultRecursive @todo
 	DefaultRecursive = false
 	// DefaultSeparator @todo
@@ -61,27 +65,6 @@ const (
 	DefaultUTC = true
 	// DefaultVerbose @todo
 	DefaultVerbose = 0
-)
-
-const (
-	// ModeRegularFile @todo
-	ModeRegularFile = "file"
-	// ModeDirectory @todo
-	ModeDirectory = "directory"
-	// ModeSymlink @todo
-	ModeSymlink = "symlink"
-	// ModeDevice @todo
-	ModeDevice = "device"
-	// ModeNamedPipe @todo
-	ModeNamedPipe = "named pipe"
-	// ModeSocket @todo
-	ModeSocket = "socket"
-	// ModeIrregular @todo
-	// added in go 1.11:
-	// ModeIrregular = "irregular"
-
-	// ModeUnknown @todo
-	ModeUnknown = "unknown"
 )
 
 // Dir @todo
@@ -116,29 +99,10 @@ type IgnoredRec struct {
 	Type string
 }
 
-// CacheRec @todo
-type CacheRec struct {
-	// Path @todo
-	Path string `csv:"path"`
-	// Size @todo
-	Size uint64 `csv:"size"`
-	// Modified @todo
-	Modified time.Time `csv:"modified"`
-	// Hash @todo
-	Hash string `csv:"hash"`
-	// Mode @todo
-	Mode string `csv:"mode,omitempty"`
-	// Created @todo
-	Created string `csv:"created,omitempty"`
-	// Accessed @todo
-	Accessed string `csv:"accessed,omitempty"`
-	// Valid @todo
-	Valid bool `csv:"-"`
-}
-
 // Dupless @todo
 type Dupless struct {
 	cache     string
+	chunk     uint
 	separator string
 	dirReport bool
 	exclude   string
@@ -146,6 +110,7 @@ type Dupless struct {
 	freq      uint
 	hash      string
 	help      bool
+	iexclude  string
 	// rename to include
 	mask         string
 	minDirLength uint
@@ -174,8 +139,14 @@ type Dupless struct {
 	dirs        map[string]*Dir
 	errorDirs   map[string][]*ErrorRec
 	ignoredDirs map[string][]*IgnoredRec
-	dups        map[uint64]map[string][]string
-	files       map[string]*CacheRec
+	//			files[path] = *file.File
+	files map[string]*file.File
+	//          uniques[uniqueID] = paths[]
+	uniques map[string][]string
+	//          sizes[size][uniqueIDs] = paths[]
+	sizes map[uint64]map[string][]*file.File
+	//          hashes[size][hash] = *file.File[]
+	hashes map[uint64]map[string][]*file.File
 }
 
 // Uint64Slice @todo
@@ -202,7 +173,7 @@ func dump(s string, x interface{}) {
 	if err != nil {
 		log.Fatal("\nJSON marshaling error: ", err)
 	}
-	fmt.Print(string(b))
+	fmt.Println(string(b))
 }
 
 func getDir(path string, minDirLength uint) string {
@@ -211,27 +182,6 @@ func getDir(path string, minDirLength uint) string {
 		return dir
 	}
 	return trimSuffix(dir, string(os.PathSeparator))
-}
-
-func getFileType(fi os.FileInfo) string {
-	switch mode := fi.Mode(); {
-	case mode.IsRegular():
-		return ModeRegularFile
-	case mode.IsDir():
-		return ModeDirectory
-	case mode&os.ModeSymlink != 0:
-		return ModeSymlink
-	case mode&os.ModeDevice != 0:
-		return ModeDevice
-	case mode&os.ModeNamedPipe != 0:
-		return ModeNamedPipe
-	case mode&os.ModeSocket != 0:
-		return ModeSocket
-		// added in go 1.11:
-		//case mode&os.ModeIrregular != 0:
-		//	return ModeIrregular
-	}
-	return ModeUnknown
 }
 
 func substring(s string, start int, end int) string {
@@ -264,8 +214,10 @@ func (d *Dupless) init() {
 	}
 
 	flag.StringVar(&d.cache, "cache", DefaultCache, "Cache filename")
+	flag.UintVar(&d.chunk, "chunk", DefaultChunk, "Hash chunk")
 	flag.BoolVar(&d.dirReport, "dir_report", DefaultDirReport, "Report by directory")
 	flag.StringVar(&d.exclude, "exclude", DefaultExclude, "Regexs of Directories/files to exclude, separated by |")
+	flag.StringVar(&d.iexclude, "iexclude", DefaultIexclude, "Regexs of Directories/files to exclude, separated by |")
 	flag.BoolVar(&d.extra, "extra", DefaultExtra, "Cache extra attributes")
 	flag.UintVar(&d.freq, "frequency", DefaultFrequency, "Reporting frequency")
 	flag.StringVar(&d.hash, "hash", DefaultHash, "Hash type")
@@ -293,14 +245,32 @@ func (d *Dupless) init() {
 		}
 	} else {
 		d.excludes = []string{
-			`(?i)^[A-Z]:[\/]\$Recycle\.bin$`,
-			`(?i)^[A-Z]:[\/]System Volume Information$`,
+			`(?i)^[A-Z]:/$Recycle\.bin`,
+			`(?i)^[A-Z]:/System Volume Information`,
 		}
 	}
 
 	if d.exclude != "" {
-		d.excludes = strings.Split(d.exclude, "|")
+		a := strings.Split(d.exclude, "|")
+		for _, s := range a {
+			if runtime.GOOS == "windows" {
+				s = strings.Replace(s, "\\", "/", -1)
+			}
+			d.excludes = append(d.excludes, s)
+		}
 	}
+
+	if d.iexclude != "" {
+		a := strings.Split(d.iexclude, "|")
+		for _, s := range a {
+			if runtime.GOOS == "windows" {
+				s = strings.Replace(s, "\\", "/", -1)
+			}
+			d.excludes = append(d.excludes, "(?i)"+s)
+		}
+	}
+
+	dump("d.excludes=", d.excludes)
 
 	value, _ /*multibyte*/, _ /*tail*/, err := strconv.UnquoteChar(d.separator, 0)
 	if err != nil {
@@ -309,113 +279,12 @@ func (d *Dupless) init() {
 	d.comma = value
 
 	d.dirs = make(map[string]*Dir)
-	d.dups = make(map[uint64]map[string][]string)
 	d.errorDirs = make(map[string][]*ErrorRec)
 	d.ignoredDirs = make(map[string][]*IgnoredRec)
 	d.p = message.NewPrinter(language.English)
-	d.files = make(map[string]*CacheRec)
-
-	if d.cache != "" {
-		log.Printf("Opening %s", d.cache)
-
-		gocsv.SetCSVReader(func(in io.Reader) gocsv.CSVReader {
-			r := csv.NewReader(in)
-			r.Comma = d.comma
-			r.Comment = '#'
-			r.FieldsPerRecord = -1
-			r.LazyQuotes = true
-			r.TrimLeadingSpace = true
-			return r
-		})
-
-		gocsv.SetCSVWriter(func(out io.Writer) *gocsv.SafeCSVWriter {
-			w := csv.NewWriter(out)
-			w.Comma = d.comma
-			return gocsv.NewSafeCSVWriter(w)
-		})
-
-		var err error
-		d.cacheFH, err = os.OpenFile(d.cache, os.O_RDWR|os.O_CREATE, 0600)
-		if err != nil {
-			panic(err)
-		}
-		pos, err := d.cacheFH.Seek(0, os.SEEK_END)
-		if err != nil {
-			panic(err)
-		}
-
-		fields := []string{
-			"path",
-			"size",
-			"modified",
-			"hash",
-		}
-
-		fields2 := []string{
-			fmt.Sprintf("#godupless/%s/%s", version.VERSION, d.hash),
-			"0",
-			time.Now().Format(time.RFC3339),
-			"",
-		}
-		
-		if d.extra {
-			fields = append(fields, "mode")
-			fields = append(fields, "created")
-			fields = append(fields, "accessed")
-			fields2 = append(fields2, "")
-			fields2 = append(fields2, "")
-			fields2 = append(fields2, "")
-		}
-		if pos == 0 {
-			// @todo rename to modified
-			header := strings.Join(fields, string(d.comma)) + "\n"
-			header += strings.Join(fields2, string(d.comma)) + "\n"
-			_, err = d.cacheFH.WriteString(header)
-			if err != nil {
-				panic(err)
-			}
-		}
-		_, err = d.cacheFH.Seek(0, os.SEEK_SET)
-		if err != nil {
-			panic(err)
-		}
-	}
-}
-
-func (d *Dupless) readCache() error {
-	if d.cacheFH == nil {
-		return nil
-	}
-	fmt.Printf("Loading from cache\n")
-
-	err := gocsv.UnmarshalToCallback(d.cacheFH, func(cr *CacheRec) {
-		d.files[cr.Path] = cr
-	})
-	if err != nil {
-		panic(err)
-	}
-	return nil
-}
-
-func (d *Dupless) writeCache(cr *CacheRec) (err error) {
-	d.files[cr.Path] = cr
-	if d.cacheFH == nil {
-		return nil
-	}
-	acr := make([]*CacheRec, 1)
-	acr[0] = cr
-	err = gocsv.MarshalWithoutHeaders(&acr, d.cacheFH)
-	if err != nil {
-		panic(err)
-	}
-	return nil
-}
-
-func (d *Dupless) close() {
-	if d.cacheFH != nil {
-		d.cacheFH.Close()
-		d.cacheFH = nil
-	}
+	d.files = make(map[string]*file.File)
+	d.uniques = make(map[string][]string)
+	d.sizes = make(map[uint64]map[string][]*file.File)
 }
 
 func (d *Dupless) addPath(path string, size uint64) {
@@ -474,15 +343,12 @@ func (d *Dupless) addIgnore(path string, typ string) {
 }
 
 func (d *Dupless) reportByDir() {
-	fmt.Printf("Duplication Report By Size/Directory\n\n")
+	fmt.Printf("\nDuplication Report By Size/Directory\n\n")
 
-	for size := range d.dups {
-		for _, paths := range d.dups[size] {
-			if len(paths) < 2 {
-				continue
-			}
-			for _, path := range paths {
-				d.addPath(path, size)
+	for size, hashmap := range d.hashes {
+		for _, files := range hashmap {
+			for _, f := range files {
+				d.addPath(f.Path(), size)
 			}
 		}
 	}
@@ -517,7 +383,7 @@ func (d *Dupless) reportByDir() {
 				fmt.Printf("size: %d\n", size)
 				emitSize = false
 			}
-			fmt.Printf("  %d: %v (%d files)\n", i+1, dircount.Dir, dircount.Count)
+			d.p.Printf("  %d: %v (%d files)\n", i+1, dircount.Dir, dircount.Count)
 			files += dircount.Count
 		}
 	}
@@ -525,39 +391,36 @@ func (d *Dupless) reportByDir() {
 }
 
 func (d *Dupless) reportBySize() {
-	fmt.Printf("Duplication Report By Size/Paths\n\n")
+	fmt.Printf("\nDuplication Report By Size/Paths\n\n")
 
 	i := 0
-	sizes := make([]uint64, len(d.dups))
-	for size := range d.dups {
+	sizes := make([]uint64, len(d.hashes))
+	for size := range d.hashes {
 		sizes[i] = size
 		i++
 	}
 	sort.Sort(sort.Reverse(Uint64Slice(sizes)))
 
 	var totalSize uint64
-	var files uint64
+	var totalFiles uint64
 
 	for _, size := range sizes {
-		for hash, paths := range d.dups[size] {
-			if uint(len(paths)) < d.minFiles {
-				continue
-			}
-			totalSize += size
-			files += uint64(len(paths))
+		for hash, files := range d.hashes[size] {
+			totalFiles += uint64(len(files))
 			d.p.Printf("Size: %d (%s)\n", size, hash)
-			for i, path := range paths {
-				fmt.Printf("  %d: %s\n", i+1, path)
+			for i, f := range files {
+				totalSize += size
+				fmt.Printf("  %d: %s\n", i+1, f.Path())
 			}
 		}
 	}
 
 	var avg uint64
-	if files > 0 {
-		avg = totalSize / files
+	if totalFiles > 0 {
+		avg = totalSize / totalFiles
 	}
 
-	d.p.Printf("\n%d files totaling %d bytes (%d bytes per file average)\n", files, totalSize, avg)
+	d.p.Printf("\n%d files totaling %d bytes (%d bytes per file average)\n", totalFiles, totalSize, avg)
 }
 
 func (d *Dupless) reportIgnored() {
@@ -565,7 +428,7 @@ func (d *Dupless) reportIgnored() {
 		return
 	}
 
-	fmt.Printf("Ignored Files/Directories Report\n\n")
+	fmt.Printf("\nIgnored Files/Directories Report\n\n")
 
 	i := 0
 	dirs := make([]string, len(d.ignoredDirs))
@@ -582,33 +445,251 @@ func (d *Dupless) reportIgnored() {
 	}
 }
 
+func (d *Dupless) count(hashes map[uint64]map[string][]*file.File) (scanning int, total int) {
+	scanning = 0
+	total = 0
+	for _, hashmap := range hashes {
+		for _, files := range hashmap {
+			for _, f := range files {
+				if f.Err() == nil {
+					total++
+				}
+				if !f.EOF() {
+					scanning++
+				}
+			}
+		}
+	}
+	return scanning, total
+}
+
+func (d *Dupless) doHash(hashes map[uint64]map[string][]*file.File) error {
+	eof := true
+	for _, hashmap := range hashes {
+		for _, files := range hashmap {
+			for _, f := range files {
+				if f.EOF() {
+					continue
+				}
+				if f.Err() != nil {
+					continue
+				}
+				if !f.Opened() {
+					//fmt.Printf("Opening %s\n", f.Path())
+					err := f.Open(d.getHash())
+					if err != nil {
+						fmt.Printf("doHash: %s", err)
+						continue
+					}
+				}
+				//fmt.Printf("Reading %d bytes from %s\n", d.chunk, f.Path())
+				err := f.Read(uint64(d.chunk))
+				if err == nil {
+					eof = false
+					continue
+				}
+				if err != io.EOF {
+					// don't set eof to false on errors
+					fmt.Printf("dohash: %s\n", err)
+				}
+				err = f.Close()
+				if err != nil {
+					fmt.Printf("dohash: %s\n", err)
+				}
+			}
+		}
+	}
+	if eof {
+		return io.EOF
+	}
+	return nil
+}
+
+func (d *Dupless) rehash(hashes map[uint64]map[string][]*file.File) (newHashes map[uint64]map[string][]*file.File) {
+	newHashes = make(map[uint64]map[string][]*file.File)
+
+	for size, hashmap := range hashes {
+		_, ok := newHashes[size]
+		if !ok {
+			newHashes[size] = make(map[string][]*file.File)
+		}
+		for _, files := range hashmap {
+			for _, f := range files {
+				if f.Err() != nil {
+					fmt.Printf("rehash(): error: %s\n", f.Err())
+				}
+				_, ok = newHashes[size][f.Hash()]
+				if !ok {
+					newHashes[size][f.Hash()] = make([]*file.File, 0)
+				}
+				newHashes[size][f.Hash()] = append(newHashes[size][f.Hash()], f)
+			}
+		}
+	}
+
+	for size, hashmap := range newHashes {
+		for hash, files := range hashmap {
+			if uint(len(files)) < d.minFiles {
+				for _, f := range files {
+					f.Close()
+				}
+				//log.Printf("Deleting size %d hash %s\n", size, hash)
+				delete(newHashes[size], hash)
+			}
+		}
+	}
+
+	for size, hashmap := range newHashes {
+		if len(hashmap) < 1 {
+			//log.Printf("Deleting size %d\n", size)
+			delete(newHashes, size)
+		}
+	}
+
+	return newHashes
+}
+
+func (d *Dupless) getHash() hash.Hash {
+	// @todo move to constant
+	skey := "0000000000000000000000000000000000000000000000000000000000000000"
+	key, _ := hex.DecodeString(skey)
+
+	switch d.hash {
+	case "highway64":
+		h, _ := highwayhash.New64(key)
+		return h
+	case "highway128":
+		h, _ := highwayhash.New128(key)
+		return h
+	case "highway256", "highway":
+		h, _ := highwayhash.New(key)
+		return h
+	case "md5":
+		h := md5.New()
+		return h
+	case "sha1":
+		h := sha1.New()
+		return h
+	case "sha256":
+		h := sha256.New()
+		return h
+	case "sha512":
+		h := sha512.New()
+		return h
+	default:
+		fmt.Fprintf(os.Stderr, "\nUnknown hash format: '%s'\n", d.hash)
+		os.Exit(1)
+	}
+
+	return nil
+}
+
 func (d *Dupless) summarize() {
-	fmt.Println("Summarizing data")
+	start := time.Now()
+	for path, f := range d.files {
+		_, ok := d.uniques[f.UniqueID()]
+		if !ok {
+			d.uniques[f.UniqueID()] = make([]string, 0)
+		}
+		d.uniques[f.UniqueID()] = append(d.uniques[f.UniqueID()], path)
+		_, ok = d.sizes[f.Size()]
+		if !ok {
+			d.sizes[f.Size()] = make(map[string][]*file.File)
+		}
+		_, ok = d.sizes[f.Size()][f.UniqueID()]
+		if !ok {
+			d.sizes[f.Size()][f.UniqueID()] = make([]*file.File, 0)
+		}
+		d.sizes[f.Size()][f.UniqueID()] = append(d.sizes[f.Size()][f.UniqueID()], f)
+	}
 
-	for file, cr := range d.files {
-		if !cr.Valid {
-			delete(d.files, file)
+	//dump("d.files=", d.files)
+	//dump("d.uniques=", d.uniques)
+
+	for size, uniques := range d.sizes {
+		if uint(len(uniques)) < d.minFiles {
+			delete(d.sizes, size)
+		}
+	}
+	//dump("d.sizes=", d.sizes)
+
+	var sizes = make([]uint64, len(d.sizes))
+
+	i := 0
+	for size := range d.sizes {
+		sizes[i] = size
+		i++
+	}
+
+	sort.Sort(sort.Reverse(Uint64Slice(sizes)))
+
+	h := d.getHash()
+
+	defaultHash := fmt.Sprintf("%x", h.Sum(nil))
+
+	var hashes = make(map[uint64]map[string][]*file.File)
+	for size, uniqueMap := range d.sizes {
+		_, ok := hashes[size]
+		if !ok {
+			hashes[size] = make(map[string][]*file.File)
+		}
+		_, ok = hashes[size][defaultHash]
+		if !ok {
+			hashes[size][defaultHash] = make([]*file.File, 0)
+		}
+		for _, files := range uniqueMap {
+			// we only need to hash the first file, as the others are the same file
+			hashes[size][defaultHash] = append(hashes[size][defaultHash], files[0])
 		}
 	}
 
-	for _, cr := range d.files {
-		size := cr.Size
-		hash := cr.Hash
-		path := cr.Path
+	//dump("hashes=", hashes)
 
-		_, ok := d.dups[size]
-		if !ok {
-			d.dups[size] = make(map[string][]string)
+	loops := (sizes[0] / uint64(d.chunk)) + 1
+
+	loop := 0
+	read := uint64(0)
+	for {
+		loop++
+		scanning, total := d.count(hashes)
+		d.p.Printf("Loop %d of %d: %d of %d bytes read: scanning %d of %d files (%d unique sizes)\n", loop, loops, read, sizes[0], scanning, total, len(hashes))
+		read += uint64(d.chunk)
+		err := d.doHash(hashes)
+		if err == io.EOF {
+			fmt.Println("io_EOF")
+			break
 		}
-		_, ok = d.dups[size][hash]
-		if !ok {
-			d.dups[size][hash] = make([]string, 0)
+		if err != nil {
+			fmt.Println(err)
 		}
-		d.dups[size][hash] = append(d.dups[size][hash], path)
+		newHashes := d.rehash(hashes)
+		hashes = newHashes
+		if len(hashes) == 0 {
+			fmt.Println("len(hashes)=0")
+			break
+		}
 	}
+	elapsed := time.Since(start)
+	_, total := d.count(hashes)
+	fmt.Printf("\nHashed %d files in %s\n", total, elapsed)
+	//pause()
+	//dump("hashes=", hashes)
+	d.hashes = hashes
+}
+
+func pause() {
+	fmt.Print("Press 'Enter' to continue:")
+	bufio.NewReader(os.Stdin).ReadBytes('\n')
+	fmt.Printf("\n")
 }
 
 func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
+	if runtime.GOOS == "windows" {
+		path = strings.Replace(path, "\\", "/", -1)
+	}
+	if d.verbose > 0 {
+		fmt.Printf("Opening %s\n", path)
+	}
 	if err != nil {
 		if d.verbose > 0 {
 			fmt.Fprintf(os.Stderr, "\nError on '%s': %s\n", path, err)
@@ -617,7 +698,9 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 
 	err = nil
 	for {
+		d.path = path
 		d.hits++
+
 		for _, exclude := range d.excludes {
 			ok, e := regexp.MatchString(exclude, path)
 			if e != nil {
@@ -628,46 +711,6 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 				d.addIgnore(path, "excluded")
 				return filepath.SkipDir
 			}
-		}
-		d.path = path
-		if fi == nil {
-			var e error
-			fi, e = os.Lstat(path)
-			if e != nil {
-				s := fmt.Sprintf("Cannot lstat '%s': %s", path, e)
-				d.addError(path, s)
-				break
-			}
-		}
-		d.dev = VolumeName(fi, path)
-		if d.lastDev != d.dev {
-			if d.lastDev != "" {
-				fmt.Printf("\nSkipping %s as it is on device %s\n", path, d.dev)
-				return filepath.SkipDir
-			}
-			d.lastDev = d.dev
-		}
-
-		typ := getFileType(fi)
-
-		if typ == ModeDirectory {
-			d.directories++
-			break
-		}
-		if typ == ModeSymlink {
-			d.ignored++
-			break
-		}
-		if typ != ModeRegularFile {
-			d.addIgnore(path, typ)
-			break
-		}
-
-		size := uint64(fi.Size())
-
-		if size <= d.minSize {
-			d.skipped++
-			break
 		}
 
 		if d.mask != "" {
@@ -686,89 +729,62 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			}
 		}
 
-		file, ok := d.files[path]
-		if ok {
-			if file.Size == size && file.Modified == fi.ModTime() {
-				file.Valid = true
+		if fi != nil {
+			if fi.IsDir() {
+				d.directories++
+				break
+			}
+			if fi.Mode()&os.ModeSymlink != 0 {
+				d.ignored++
+				break
+			}
+			if fi.Mode()&os.ModeType != 0 {
+				d.addIgnore(path, fi.Mode().String())
+				break
+			}
+
+			if uint64(fi.Size()) <= d.minSize {
+				d.skipped++
 				break
 			}
 		}
 
-		fh, e := os.Open(path)
+		f, e := file.NewFile(path, fi)
 		if e != nil {
-			d.errors++
-			if d.verbose > 0 {
-				fmt.Fprintf(os.Stderr, "\nCannot open '%s': %s\n", path, e)
-			}
+			s := fmt.Sprintf("Cannot stat '%s': %s", path, e)
+			d.addError(path, s)
 			break
 		}
-		defer fh.Close()
 
-		var h hash.Hash
-
-		// @todo move to constant
-		skey := "0000000000000000000000000000000000000000000000000000000000000000"
-		key, _ := hex.DecodeString(skey)
-
-		switch d.hash {
-		case "highway64":
-			h, _ = highwayhash.New64(key)
-		case "highway128":
-			h, _ = highwayhash.New128(key)
-		case "highway256", "highway":
-			h, _ = highwayhash.New(key)
-		case "md5":
-			h = md5.New()
-		case "sha1":
-			h = sha1.New()
-		case "sha256":
-			h = sha256.New()
-		case "sha512":
-			h = sha512.New()
-		default:
-			fmt.Fprintf(os.Stderr, "\nUnknown hash format: '%s'\n", d.hash)
-			os.Exit(1)
+		if f.IsDir() {
+			d.directories++
+			break
+		}
+		if f.IsSymlink() {
+			d.ignored++
+			break
+		}
+		if !f.IsRegular() {
+			d.addIgnore(path, f.Type())
+			break
 		}
 
-		_, e = io.Copy(h, fh)
-		if e != nil {
-			d.errors++
-			if d.verbose > 0 {
-				fmt.Fprintf(os.Stderr, "\nCannot read '%s': %s\n", path, e)
-			}
+		if f.Size() <= d.minSize {
+			d.skipped++
 			break
+		}
+
+		d.dev = fmt.Sprintf("%016x", f.VolumeID())
+		if d.lastDev != d.dev {
+			if d.lastDev != "" {
+				fmt.Printf("\nSkipping %s as it is on device %s\n", path, d.dev)
+				return filepath.SkipDir
+			}
+			d.lastDev = d.dev
 		}
 
 		d.matched++
-
-		hash := fmt.Sprintf("%x", h.Sum(nil))
-
-		/* @TODO
-		if os.PathSeparator == '\\' {
-			path = strings.Replace(path, `\`, "/", -1)
-		}
-		*/
-		mtime := fi.ModTime()
-		ctime := Ctime(fi)
-		atime := Atime(fi)
-		if d.utc {
-			ctime = ctime.UTC()
-			mtime = mtime.UTC()
-			atime = atime.UTC()
-		}
-		cr := CacheRec{
-			Path:     path,
-			Size:     size,
-			Modified: mtime,
-			Hash:     hash,
-			Valid:    true,
-		}
-		if d.extra {
-			cr.Mode = fmt.Sprintf("0%o", fi.Mode())
-			cr.Created = ctime.Format(time.RFC3339Nano)
-			cr.Accessed = atime.Format(time.RFC3339Nano)
-		}
-		d.writeCache(&cr)
+		d.files[path] = f
 		break
 	}
 
@@ -812,12 +828,16 @@ func main() {
 
 	dupless.p.Printf("\nMinimum size: %d\n\n", dupless.minSize)
 
-	dupless.readCache()
-
 	fmt.Printf("    skipped     matched directories     ignored      errors device\n")
 	fmt.Printf("----------- ----------- ----------- ----------- ----------- ------\n")
 
-	for _, arg := range flag.Args() {
+	start := time.Now()
+
+	for i, arg := range flag.Args() {
+		if i > 0 {
+			fmt.Println("")
+		}
+		dupless.resetCounters()
 		dupless.lastDev = ""
 		if runtime.GOOS == "windows" {
 			if len(arg) == 2 && arg[1] == ':' {
@@ -828,13 +848,26 @@ func main() {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "\nWalk returned:", err)
 		}
-		dupless.resetCounters()
-		fmt.Println("")
 	}
 
-	dupless.close()
+	elapsed := time.Since(start)
+	fmt.Printf("\nFound %d matching files in %s\n", len(dupless.files), elapsed)
+
 	dupless.progress(true)
+	if len(dupless.files) < 1 {
+		fmt.Printf("No files found\n")
+		os.Exit(0)
+	}
+
 	dupless.summarize()
+
+	elapsed = time.Since(start)
+	fmt.Printf("Total elapsed time: %s\n", elapsed)
+
+	if len(dupless.hashes) < 1 {
+		fmt.Printf("No duplicate files found\n")
+		os.Exit(0)
+	}
 
 	if dupless.dirReport {
 		dupless.reportByDir()
