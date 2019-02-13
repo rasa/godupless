@@ -2,7 +2,6 @@ package file
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -61,11 +60,11 @@ type File struct {
 }
 
 // NewFile @todo
-func NewFile(path string, fi os.FileInfo) (f *File, err error) {
+func NewFile(path string, fi os.FileInfo, h hash.Hash) (f *File, err error) {
 	if runtime.GOOS == "windows" {
 		path = strings.Replace(path, "\\", "/", -1)
 	}
-	f = &File{path: path}
+	f = &File{path: path, h: h}
 	err = f.stat(fi)
 	if err != nil {
 		return nil, err
@@ -164,61 +163,72 @@ func (f *File) Type() string {
 	return "unknown"
 }
 
-// Open @todo
-func (f *File) Open(h hash.Hash) (err error) {
-	if f.fh != nil {
-		return errors.New("file already open")
-	}
+// Reset @todo
+func (f *File) Reset() {
+	f.Close()
 	f.pos = 0
 	f.err = nil
 	f.eof = false
-	f.h = h
-	f.fh, err = os.Open(f.path)
+	f.h.Reset()
+}
+
+// Open @todo
+func (f *File) Open() error {
+	f.Reset()
+	return f.Reopen()
+}
+
+// Reopen @todo
+func (f *File) Reopen() error {
+	if f.err != nil {
+		// don't reopen if there's been an error
+		return f.err
+	}
+	if f.fh != nil {
+		// no need to reopen if it's already open
+		return nil
+	}
+	f.fh, f.err = os.Open(f.path)
+	if f.err != nil {
+		return f.err
+	}
+	if f.pos == 0 {
+		// we're already at the beginning of the file
+		return nil
+	}
+	fmt.Printf("Seeking to %d\n", f.pos)
+	pos, err := f.fh.Seek(int64(f.pos), os.SEEK_SET)
 	if err != nil {
+		if err == io.EOF {
+			f.eof = true
+			return io.EOF
+		}
+		f.err = err
 		return err
 	}
-
+	if uint64(pos) != f.pos {
+		return fmt.Errorf("seek failed: expected %d, got %d", f.pos, pos)
+	}
 	return nil
 }
 
 // Read @todo
 func (f *File) Read(bytes uint64) (err error) {
-	//fmt.Printf("1Read  =%s\n", f.Hash())
 	if f.eof {
 		return io.EOF
 	}
 	if f.err != nil {
 		return f.err
 	}
-	if f.h == nil {
-		return errors.New("file has never been opened")
-	}
 	if f.fh == nil {
 		fmt.Printf("file.Read(): Reopening %s\n", f.path)
-		f.fh, err = os.Open(f.path)
+		err = f.Reopen()
 		if err != nil {
-			f.err = err
 			return err
 		}
-		if f.pos > 0 {
-			fmt.Printf("Seeking to %d\n", f.pos)
-			pos, err := f.fh.Seek(int64(f.pos), os.SEEK_SET)
-			if err != nil {
-				if err == io.EOF {
-					f.eof = true
-					return io.EOF
-				}
-				f.err = err
-				return err
-			}
-			if uint64(pos) != f.pos {
-				return fmt.Errorf("seek failed: expected %d, got %d", f.pos, pos)
-			}
-		}
 	}
-	//fmt.Printf("2before=%s bytes  =%d\n", f.Hash(), bytes)
 	written, err := io.CopyN(f.h, f.fh, int64(bytes))
-	//fmt.Printf("3after =%s written=%d\n", f.Hash(), written)
+	f.pos += uint64(written)
 	if err != nil {
 		if err == io.EOF {
 			f.eof = true
@@ -226,7 +236,6 @@ func (f *File) Read(bytes uint64) (err error) {
 			f.err = err
 		}
 	}
-	f.pos += uint64(written)
 	return err
 }
 

@@ -34,7 +34,7 @@ const (
 	// DefaultCache @todo
 	DefaultCache = "godupless.cache"
 	// DefaultChunk @todo
-	DefaultChunk = 4096
+	DefaultChunk = 2 << 19 // 2<<19=2^20=1,048,576
 	// DefaultDirReport @todo
 	DefaultDirReport = false
 	// DefaultExclude @todo
@@ -54,7 +54,7 @@ const (
 	// DefaultMinDirLength @todo
 	DefaultMinDirLength = uint(2)
 	// DefaultMinSize @todo
-	DefaultMinSize = 2 << 20 // 20= 2,097,152 24=33,554,432
+	DefaultMinSize = 2 << 20 // 2<<20=2^21=2,097,152
 	// DefaultRecursive @todo
 	DefaultRecursive = false
 	// DefaultSeparator @todo
@@ -476,9 +476,9 @@ func (d *Dupless) doHash(hashes map[uint64]map[string][]*file.File) error {
 				}
 				if !f.Opened() {
 					//fmt.Printf("Opening %s\n", f.Path())
-					err := f.Open(d.getHash())
+					err := f.Open()
 					if err != nil {
-						fmt.Printf("doHash: %s", err)
+						fmt.Printf("doHash: %s\n", err)
 						continue
 					}
 				}
@@ -516,7 +516,8 @@ func (d *Dupless) rehash(hashes map[uint64]map[string][]*file.File) (newHashes m
 		for _, files := range hashmap {
 			for _, f := range files {
 				if f.Err() != nil {
-					fmt.Printf("rehash(): error: %s\n", f.Err())
+					//fmt.Printf("rehash(): error: %s\n", f.Err())
+					continue
 				}
 				_, ok = newHashes[size][f.Hash()]
 				if !ok {
@@ -749,7 +750,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			}
 		}
 
-		f, e := file.NewFile(path, fi)
+		f, e := file.NewFile(path, fi, d.getHash())
 		if e != nil {
 			s := fmt.Sprintf("Cannot stat '%s': %s", path, e)
 			d.addError(path, s)
@@ -774,7 +775,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			break
 		}
 
-		d.dev = fmt.Sprintf("%016x", f.VolumeID())
+		d.dev, _ = f.VolumeName()
 		if d.lastDev != d.dev {
 			if d.lastDev != "" {
 				fmt.Printf("\nSkipping %s as it is on device %s\n", path, d.dev)
@@ -850,10 +851,11 @@ func main() {
 		}
 	}
 
+	dupless.progress(true)
+
 	elapsed := time.Since(start)
 	fmt.Printf("\nFound %d matching files in %s\n", len(dupless.files), elapsed)
 
-	dupless.progress(true)
 	if len(dupless.files) < 1 {
 		fmt.Printf("No files found\n")
 		os.Exit(0)
@@ -861,8 +863,8 @@ func main() {
 
 	dupless.summarize()
 
-	elapsed = time.Since(start)
-	fmt.Printf("Total elapsed time: %s\n", elapsed)
+	elapsed2 := time.Since(start)
+	fmt.Printf("\nTotal elapsed time: %s\n", elapsed2)
 
 	if len(dupless.hashes) < 1 {
 		fmt.Printf("No duplicate files found\n")
