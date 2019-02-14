@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cespare/xxhash"
 	"github.com/minio/highwayhash"
 	"github.com/rasa/godupless/file"
 	"github.com/rasa/godupless/version"
@@ -577,6 +578,9 @@ func (d *Dupless) getHash() hash.Hash {
 	case "sha512":
 		h := sha512.New()
 		return h
+	case "xxhash":
+		h := xxhash.New()
+		return h
 	default:
 		fmt.Fprintf(os.Stderr, "\nUnknown hash format: '%s'\n", d.hash)
 		os.Exit(1)
@@ -739,7 +743,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 				d.ignored++
 				break
 			}
-			if fi.Mode()&os.ModeType != 0 {
+			if ! fi.Mode().IsRegular() {
 				d.addIgnore(path, fi.Mode().String())
 				break
 			}
