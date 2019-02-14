@@ -126,6 +126,7 @@ type Dupless struct {
 	comma    rune
 	excludes []string
 	lastDev  string
+	masks    []string
 	p        *message.Printer
 	path     string
 	dev      string
@@ -271,7 +272,14 @@ func (d *Dupless) init() {
 		}
 	}
 
-	dump("d.excludes=", d.excludes)
+	//dump("d.excludes=", d.excludes)
+
+	if d.mask != "" {
+		a := strings.Split(d.mask, "|")
+		for _, s := range a {
+			d.masks = append(d.masks, s)
+		}
+	}
 
 	value, _ /*multibyte*/, _ /*tail*/, err := strconv.UnquoteChar(d.separator, 0)
 	if err != nil {
@@ -590,7 +598,7 @@ func (d *Dupless) getHash() hash.Hash {
 }
 
 func (d *Dupless) summarize() {
-	start := time.Now()
+	//start := time.Now()
 	for path, f := range d.files {
 		_, ok := d.uniques[f.UniqueID()]
 		if !ok {
@@ -674,9 +682,9 @@ func (d *Dupless) summarize() {
 			break
 		}
 	}
-	elapsed := time.Since(start)
-	_, total := d.count(hashes)
-	fmt.Printf("\nHashed %d files in %s\n", total, elapsed)
+	//elapsed := time.Since(start)
+	//_, total := d.count(hashes)
+	//fmt.Printf("\nHashed %d files in %s\n", total, elapsed)
 	//pause()
 	//dump("hashes=", hashes)
 	d.hashes = hashes
@@ -718,17 +726,20 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			}
 		}
 
-		if d.mask != "" {
+		if len(d.masks) > 0 {
 			_, file := filepath.Split(path)
-			ok, e := filepath.Match(d.mask, file)
-			if e != nil {
-				d.errors++
-				if d.verbose > 0 {
-					fmt.Fprintf(os.Stderr, "\nCannot match '%s' using %s: %s\n", path, d.mask, e)
+			matched := false
+			for _, mask := range d.masks {
+				ok, e := filepath.Match(mask, file)
+				if e != nil {
+					panic(e)
 				}
-				break
+				if ok {
+					matched = true
+					break
+				}
 			}
-			if !ok {
+			if !matched {
 				d.skipped++
 				break
 			}
@@ -743,7 +754,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 				d.ignored++
 				break
 			}
-			if ! fi.Mode().IsRegular() {
+			if !fi.Mode().IsRegular() {
 				d.addIgnore(path, fi.Mode().String())
 				break
 			}
@@ -858,17 +869,18 @@ func main() {
 	dupless.progress(true)
 
 	elapsed := time.Since(start)
-	fmt.Printf("\nFound %d matching files in %s\n", len(dupless.files), elapsed)
 
 	if len(dupless.files) < 1 {
 		fmt.Printf("No files found\n")
 		os.Exit(0)
 	}
 
+	start2 := time.Now()
+
 	dupless.summarize()
 
-	elapsed2 := time.Since(start)
-	fmt.Printf("\nTotal elapsed time: %s\n", elapsed2)
+	elapsed2 := time.Since(start2)
+	elapsed3 := time.Since(start)
 
 	if len(dupless.hashes) < 1 {
 		fmt.Printf("No duplicate files found\n")
@@ -881,4 +893,8 @@ func main() {
 	if dupless.sizeReport {
 		dupless.reportBySize()
 	}
+	fmt.Printf("\nFound %d matching files in %s\n", len(dupless.files), elapsed)
+	_, total := dupless.count(dupless.hashes)
+	fmt.Printf("Hashed %d files in %s\n", total, elapsed2)
+	fmt.Printf("Total elapsed time: %s\n", elapsed3)
 }

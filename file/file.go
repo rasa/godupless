@@ -157,10 +157,7 @@ func (f *File) Type() string {
 	if f.mode&os.ModeSocket != 0 {
 		return "socket"
 	}
-	// added in go 1.11:
-	//case mode&os.ModeIrregular != 0:
-	//	return ModeIrregular
-	return "unknown"
+	return f._type()
 }
 
 // Reset @todo
