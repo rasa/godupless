@@ -727,10 +727,10 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 		}
 
 		if len(d.masks) > 0 {
-			_, file := filepath.Split(path)
+			//_, file := filepath.Split(path)
 			matched := false
 			for _, mask := range d.masks {
-				ok, e := filepath.Match(mask, file)
+				ok, e := filepath.Match(mask, path)
 				if e != nil {
 					panic(e)
 				}
