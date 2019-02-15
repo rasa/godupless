@@ -48,7 +48,7 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 		return err
 	}
 
-	// f.size = uint64(i.FileSizeHigh << 32) & uint64(i.FileSizeLow)
+	// f.size = uint64(i.FileSizeHigh << 32) + uint64(i.FileSizeLow)
 	f.volumeID = uint64(i.VolumeSerialNumber)
 	f.fileID = (uint64(i.FileIndexHigh) << 32) + uint64(i.FileIndexLow)
 	f.nlinks = uint64(i.NumberOfLinks)
