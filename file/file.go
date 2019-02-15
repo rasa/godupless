@@ -6,15 +6,13 @@ import (
 	"hash"
 	"io"
 	"os"
-	"runtime"
-	"strings"
-	"syscall"
+	//"runtime"
+	//"strings"
+	//"syscall"
 	"time"
-)
 
-func timespecToTime(ts syscall.Timespec) time.Time {
-	return time.Unix(int64(ts.Sec), int64(ts.Nsec))
-}
+	"github.com/rasa/godupless/util"
+)
 
 // File @todo
 type File struct {
@@ -61,9 +59,7 @@ type File struct {
 
 // NewFile @todo
 func NewFile(path string, fi os.FileInfo, h hash.Hash) (f *File, err error) {
-	if runtime.GOOS == "windows" {
-		path = strings.Replace(path, "\\", "/", -1)
-	}
+	path = util.NormalizePath(path)
 	f = &File{path: path, h: h}
 	err = f.stat(fi)
 	if err != nil {
@@ -74,7 +70,7 @@ func NewFile(path string, fi os.FileInfo, h hash.Hash) (f *File, err error) {
 
 // Name @todo
 func (f *File) Name() string {
-	return basename(f.path)
+	return util.Basename(f.path)
 }
 
 // Path @todo

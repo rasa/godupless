@@ -11,9 +11,13 @@ import (
 )
 
 var devMap map[uint64]string
+var volumes []string
 
 func init() {
 	devMap = make(map[uint64]string)
+	volumes = make([]string, 0)
+	// @todo load mounted volumes into volumes array
+	volumes = append(volumes, "/")
 }
 
 func visit(path string, fi os.FileInfo, err error) error {
@@ -43,4 +47,15 @@ func (f *File) VolumeName() (volume string, err error) {
 		return vol, nil
 	}
 	return volume, nil
+}
+
+// GetVolumes @todo
+func GetVolumes() (volumes []string, err error) {
+	if len(volumeMap) == 0 {
+		err := loadVolumeMap()
+		if err != nil {
+			return volumes, err
+		}
+	}
+	return volumes, nil
 }

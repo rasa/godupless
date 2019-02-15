@@ -3,10 +3,9 @@
 package file
 
 import (
-	"encoding/json"
 	"fmt"
 	"golang.org/x/sys/windows"
-	"log"
+	"sort"
 	"syscall"
 	"time"
 )
@@ -15,10 +14,20 @@ import (
 // see https://docs.microsoft.com/en-us/windows/desktop/fileio/displaying-volume-paths
 // or https://blog.csdn.net/hurricane_0x01/article/details/51516550
 
-var volumeMap map[uint64]string
+// VolumeInfo @todo
+type VolumeInfo struct {
+	MountPoint             string
+	Name                   string
+	SerialNumber           uint32
+	MaximumComponentLength uint32
+	FileSystemFlags        uint32
+	FileSystemName         string
+}
+
+var volumeMap map[uint64]VolumeInfo
 
 func init() {
-	volumeMap = make(map[uint64]string)
+	volumeMap = make(map[uint64]VolumeInfo)
 }
 
 const (
@@ -44,21 +53,6 @@ var (
 	// CheckEachTimeout check timeout for every volume
 	CheckEachTimeout = time.Duration(5)
 )
-
-func dump(s string, x interface{}) {
-	if s != "" {
-		fmt.Print(s)
-	}
-	if x == nil {
-		return
-	}
-
-	b, err := json.MarshalIndent(x, "", "  ")
-	if err != nil {
-		log.Fatal("\nJSON marshaling error: ", err)
-	}
-	fmt.Println(string(b))
-}
 
 func loadVolumeMap() error {
 	var (
@@ -101,23 +95,21 @@ func loadVolumeMap() error {
 			fmt.Printf("Failed to get volume information for %s (%s): %s\n", mountPoint, sVolumeName, err.Error())
 			return
 		}
-		/*
-			fmt.Printf("volumeMountPoint=%+v\n", syscall.UTF16ToString(volumeMountPoint[:]))
-			fmt.Printf("VolumeNameBuffer=%+v\n", syscall.UTF16ToString(VolumeNameBuffer))
-			fmt.Printf("nVolumeNameSize=%+v\n", nVolumeNameSize)
-			fmt.Printf("VolumeSerialNumber=%+v\n", VolumeSerialNumber)
-			fmt.Printf("MaximumComponentLength=%+v\n", MaximumComponentLength)
-			fmt.Printf("FileSystemFlags=%+v\n", FileSystemFlags)
-			fmt.Printf("FileSystemNameBuffer=%+v\n", syscall.UTF16ToString(FileSystemNameBuffer))
-			fmt.Printf("nFileSystemNameSize=%+v\n", nFileSystemNameSize)
-		*/
-		volumeMap[uint64(VolumeSerialNumber)] = mountPoint
+		vi := VolumeInfo{}
+		vi.MountPoint = mountPoint
+		vi.Name = syscall.UTF16ToString(VolumeNameBuffer)
+		vi.SerialNumber = VolumeSerialNumber
+		vi.MaximumComponentLength = MaximumComponentLength
+		vi.FileSystemFlags = FileSystemFlags
+		vi.FileSystemName = syscall.UTF16ToString(FileSystemNameBuffer)
+		//fmt.Printf("vi=%+v\n", vi)
+		volumeMap[uint64(VolumeSerialNumber)] = vi
 		stopflag <- true
 	}
 
 	hvol, err := windows.FindFirstVolume(&VolumeName[0], MaxVolumeNameLength)
 	if err != nil {
-		log.Printf("%s\n", err.Error())
+		fmt.Printf("%s\n", err.Error())
 	}
 	defer windows.FindVolumeClose(hvol)
 
@@ -153,7 +145,21 @@ func (f *File) VolumeName() (volume string, err error) {
 	}
 	vol, ok := volumeMap[f.volumeID]
 	if ok {
-		return vol, nil
+		return vol.MountPoint, nil
 	}
 	return volume, nil
+}
+
+// GetVolumes @todo
+func GetVolumes() ([]string, error) {
+	var err error
+	if len(volumeMap) == 0 {
+		err = loadVolumeMap()
+	}
+	var volumes []string
+	for _, volume := range volumeMap {
+		volumes = append(volumes, volume.MountPoint)
+	}
+	sort.Strings(volumes)
+	return volumes, err
 }

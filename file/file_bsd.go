@@ -5,6 +5,8 @@ package file
 import (
 	"os"
 	"syscall"
+
+	"github.com/rasa/godupless/util"
 )
 
 // These stat field names may need to be renamed later
@@ -23,8 +25,8 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 
 	f.volumeID = uint64(fi.Sys().(*syscall.Stat_t).Dev) // int32
 	f.fileID = uint64(fi.Sys().(*syscall.Stat_t).Ino)   // uint32
-	f.atime = timespecToTime(fi.Sys().(*syscall.Stat_t).Atimespec)
-	f.ctime = timespecToTime(fi.Sys().(*syscall.Stat_t).Ctimespec)
+	f.atime = util.TimespecToTime(fi.Sys().(*syscall.Stat_t).Atimespec)
+	f.ctime = util.TimespecToTime(fi.Sys().(*syscall.Stat_t).Ctimespec)
 	f.nlinks = uint64(fi.Sys().(*syscall.Stat_t).Nlink) // uint16
 	return nil
 }

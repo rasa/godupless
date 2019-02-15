@@ -8,12 +8,10 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"hash"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,6 +24,7 @@ import (
 	"github.com/cespare/xxhash"
 	"github.com/minio/highwayhash"
 	"github.com/rasa/godupless/file"
+	"github.com/rasa/godupless/util"
 	"github.com/rasa/godupless/version"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -163,51 +162,6 @@ func (p Uint64Slice) Sort() { sort.Sort(p) }
 
 // utility functions
 
-func dump(s string, x interface{}) {
-	if s != "" {
-		fmt.Print(s)
-	}
-	if x == nil {
-		return
-	}
-
-	b, err := json.MarshalIndent(x, "", "  ")
-	if err != nil {
-		log.Fatal("\nJSON marshaling error: ", err)
-	}
-	fmt.Println(string(b))
-}
-
-func getDir(path string, minDirLength uint) string {
-	dir, _ := filepath.Split(path)
-	if uint(len(dir)) <= minDirLength {
-		return dir
-	}
-	return trimSuffix(dir, string(os.PathSeparator))
-}
-
-func substring(s string, start int, end int) string {
-	startStrIdx := 0
-	i := 0
-	for j := range s {
-		if i == start {
-			startStrIdx = j
-		}
-		if i == end {
-			return s[startStrIdx:j]
-		}
-		i++
-	}
-	return s[startStrIdx:]
-}
-
-func trimSuffix(s, suffix string) string {
-	if strings.HasSuffix(s, suffix) {
-		s = s[:len(s)-len(suffix)]
-	}
-	return s
-}
-
 func (d *Dupless) init() {
 	minDirLength := DefaultMinDirLength
 	if runtime.GOOS == "windows" {
@@ -255,9 +209,7 @@ func (d *Dupless) init() {
 	if d.exclude != "" {
 		a := strings.Split(d.exclude, "|")
 		for _, s := range a {
-			if runtime.GOOS == "windows" {
-				s = strings.Replace(s, "\\", "/", -1)
-			}
+			s = util.NormalizePath(s)
 			d.excludes = append(d.excludes, s)
 		}
 	}
@@ -265,14 +217,12 @@ func (d *Dupless) init() {
 	if d.iexclude != "" {
 		a := strings.Split(d.iexclude, "|")
 		for _, s := range a {
-			if runtime.GOOS == "windows" {
-				s = strings.Replace(s, "\\", "/", -1)
-			}
+			s = util.NormalizePath(s)
 			d.excludes = append(d.excludes, "(?i)"+s)
 		}
 	}
 
-	//dump("d.excludes=", d.excludes)
+	//util.Dump("d.excludes=", d.excludes)
 
 	if d.mask != "" {
 		a := strings.Split(d.mask, "|")
@@ -298,7 +248,7 @@ func (d *Dupless) init() {
 
 func (d *Dupless) addPath(path string, size uint64) {
 	for {
-		dir := getDir(path, d.minDirLength)
+		dir := util.Dirname(path)
 		if uint(len(dir)) < d.minDirLength {
 			return
 		}
@@ -332,7 +282,7 @@ func (d *Dupless) progress(final bool) {
 }
 
 func (d *Dupless) addError(path string, s string) {
-	dir := getDir(path, d.minDirLength)
+	dir := util.Dirname(path)
 	errorRec := ErrorRec{Path: path, Error: s}
 	d.errorDirs[dir] = append(d.errorDirs[dir], &errorRec)
 	d.errors++
@@ -342,7 +292,7 @@ func (d *Dupless) addError(path string, s string) {
 }
 
 func (d *Dupless) addIgnore(path string, typ string) {
-	dir := getDir(path, d.minDirLength)
+	dir := util.Dirname(path)
 	IgnoredRec := IgnoredRec{Path: path, Type: typ}
 	d.ignoredDirs[dir] = append(d.ignoredDirs[dir], &IgnoredRec)
 	d.ignored++
@@ -616,15 +566,15 @@ func (d *Dupless) summarize() {
 		d.sizes[f.Size()][f.UniqueID()] = append(d.sizes[f.Size()][f.UniqueID()], f)
 	}
 
-	//dump("d.files=", d.files)
-	//dump("d.uniques=", d.uniques)
+	//util.Dump("d.files=", d.files)
+	//util.Dump("d.uniques=", d.uniques)
 
 	for size, uniques := range d.sizes {
 		if uint(len(uniques)) < d.minFiles {
 			delete(d.sizes, size)
 		}
 	}
-	//dump("d.sizes=", d.sizes)
+	//util.Dump("d.sizes=", d.sizes)
 
 	var sizes = make([]uint64, len(d.sizes))
 
@@ -656,7 +606,7 @@ func (d *Dupless) summarize() {
 		}
 	}
 
-	//dump("hashes=", hashes)
+	//util.Dump("hashes=", hashes)
 
 	loops := (sizes[0] / uint64(d.chunk)) + 1
 
@@ -686,7 +636,7 @@ func (d *Dupless) summarize() {
 	//_, total := d.count(hashes)
 	//fmt.Printf("\nHashed %d files in %s\n", total, elapsed)
 	//pause()
-	//dump("hashes=", hashes)
+	//util.Dump("hashes=", hashes)
 	d.hashes = hashes
 }
 
@@ -697,9 +647,7 @@ func pause() {
 }
 
 func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
-	if runtime.GOOS == "windows" {
-		path = strings.Replace(path, "\\", "/", -1)
-	}
+	path = util.NormalizePath(path)
 	if d.verbose > 0 {
 		fmt.Printf("Opening %s\n", path)
 	}
@@ -849,7 +797,23 @@ func main() {
 
 	start := time.Now()
 
-	for i, arg := range flag.Args() {
+	args := flag.Args()
+	var newargs []string
+	for _, arg := range args {
+		if arg != "*" {
+			newargs = append(newargs, arg)
+		} else {
+			volumes, err := file.GetVolumes()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "\nGetVolumes() returned:", err)
+			}
+			for _, volume := range volumes {
+				newargs = append(newargs, volume)
+			}
+		}
+	}
+
+	for i, arg := range newargs {
 		if i > 0 {
 			fmt.Println("")
 		}
