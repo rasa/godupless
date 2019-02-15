@@ -19,10 +19,15 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 	f.mode = fi.Mode()
 	f.mtime = fi.ModTime()
 
-	f.volumeID = uint64(fi.Sys().(*syscall.Stat_t).Dev) // int64
-	f.fileID = fi.Sys().(*syscall.Stat_t).Ino
-	f.atime = time.Unix(fi.Sys().(*syscall.Stat_t).Atime, fi.Sys().(*syscall.Stat_t).AtimeNsec)
-	f.ctime = time.Unix(fi.Sys().(*syscall.Stat_t).Ctime, fi.Sys().(*syscall.Stat_t).CtimeNsec)
-	f.nlinks = uint64(fi.Sys().(*syscall.Stat_t).Nlink) // uint32
+	s, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil, errors.New("conversion to *syscall.Stat_t failed")
+	}
+	
+	f.volumeID = uint64(s.Dev) // int64
+	f.fileID = s.Ino
+	f.atime = time.Unix(s.Atime, s.AtimeNsec)
+	f.ctime = time.Unix(s.Ctime, s.CtimeNsec)
+	f.nlinks = uint64(s.Nlink) // uint32
 	return nil
 }
