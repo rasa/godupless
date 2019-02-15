@@ -19,9 +19,13 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 	f.mode = fi.Mode()
 	f.mtime = fi.ModTime()
 
-	f.volumeID = uint64(fi.Sys().(*syscall.Dir).Type)<<32 + uint64(fi.Sys().(*syscall.Dir).Dev)
-	f.fileID = fi.Sys().(*syscall.Dir).Qid.Path
-	f.atime = time.Unix(int64(fi.Sys().(*syscall.Dir).Atime), 0)
+	s, ok := fi.Sys().(*syscall.Dir)
+	if !ok {
+		return nil, errors.New("conversion to *syscall.Dir failed")
+	}
+	f.volumeID = uint64(s.Type)<<32 + uint64(s.Dev)
+	f.fileID = s.Qid.Path
+	f.atime = time.Unix(int64(s.Atime), 0)
 	// not supported:
 	// f.ctime = time.Unix(0, 0)
 	// f.nlinks = 0
