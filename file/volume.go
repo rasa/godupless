@@ -4,6 +4,7 @@
 package file
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,7 +33,7 @@ func visit(path string, fi os.FileInfo, err error) error {
 	if !ok {
 		return errors.New("conversion to *syscall.Stat_t failed")
 	}
-	
+
 	rdev := uint64(s.Rdev)
 	devMap[rdev] = path
 	return nil
@@ -55,12 +56,15 @@ func (f *File) VolumeName() (volume string, err error) {
 }
 
 // GetVolumes @todo
-func GetVolumes() (volumes []string, err error) {
-	if len(volumeMap) == 0 {
-		err := loadVolumeMap()
-		if err != nil {
-			return volumes, err
+func GetVolumes() ([]string, error) {
+	var err error
+	/*
+		if len(volumeMap) == 0 {
+			err := loadVolumeMap()
+			if err != nil {
+				return volumes, err
+			}
 		}
-	}
-	return volumes, nil
+	*/
+	return volumes, err
 }

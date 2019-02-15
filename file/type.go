@@ -2,10 +2,6 @@
 
 package file
 
-import (
-	"os"
-)
-
 func (f *File) _type() string {
 	return "unknown"
 }

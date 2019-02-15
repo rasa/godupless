@@ -3,6 +3,7 @@
 package file
 
 import (
+	"errors"
 	"os"
 	"syscall"
 

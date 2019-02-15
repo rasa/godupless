@@ -23,7 +23,7 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 	if !ok {
 		return nil, errors.New("conversion to *syscall.Stat_t failed")
 	}
-	
+
 	f.volumeID = uint64(s.Dev) // int64
 	f.fileID = s.Ino
 	f.atime = time.Unix(s.Atime, s.AtimeNsec)
