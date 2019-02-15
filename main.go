@@ -36,6 +36,8 @@ const (
 	DefaultChunk = 2 << 19 // 2<<19=2^20=1,048,576
 	// DefaultDirReport @todo
 	DefaultDirReport = false
+	// DefaultErrorReport @todo
+	DefaultErrorReport = false
 	// DefaultExclude @todo
 	DefaultExclude = ""
 	// DefaultExtra @todo
@@ -46,6 +48,8 @@ const (
 	DefaultHash = "highway"
 	// DefaultIexclude @todo
 	DefaultIexclude = ""
+	// DefaultIgnoredReport @todo
+	DefaultIgnoredReport = false
 	// DefaultMask @todo
 	DefaultMask = ""
 	// DefaultMinFiles @todo
@@ -100,16 +104,18 @@ type IgnoredRec struct {
 
 // Dupless @todo
 type Dupless struct {
-	cache     string
-	chunk     uint
-	separator string
-	dirReport bool
-	exclude   string
-	extra     bool
-	freq      uint
-	hash      string
-	help      bool
-	iexclude  string
+	cache         string
+	chunk         uint
+	separator     string
+	dirReport     bool
+	errorReport   bool
+	exclude       string
+	extra         bool
+	freq          uint
+	hash          string
+	help          bool
+	iexclude      string
+	ignoredReport bool
 	// rename to include
 	mask         string
 	minDirLength uint
@@ -139,14 +145,14 @@ type Dupless struct {
 	dirs        map[string]*Dir
 	errorDirs   map[string][]*ErrorRec
 	ignoredDirs map[string][]*IgnoredRec
-	//			files[path] = *file.File
-	files map[string]*file.File
-	//          uniques[uniqueID] = paths[]
+	// files[path] = *file.File
+	// uniques[uniqueID] = paths[]
+	// sizes[size][uniqueIDs] = paths[]
+	// hashes[size][hash] = *file.File[]
+	files   map[string]*file.File
 	uniques map[string][]string
-	//          sizes[size][uniqueIDs] = paths[]
-	sizes map[uint64]map[string][]*file.File
-	//          hashes[size][hash] = *file.File[]
-	hashes map[uint64]map[string][]*file.File
+	sizes   map[uint64]map[string][]*file.File
+	hashes  map[uint64]map[string][]*file.File
 }
 
 // Uint64Slice @todo
@@ -171,12 +177,14 @@ func (d *Dupless) init() {
 	flag.StringVar(&d.cache, "cache", DefaultCache, "Cache filename")
 	flag.UintVar(&d.chunk, "chunk", DefaultChunk, "Hash chunk")
 	flag.BoolVar(&d.dirReport, "dir_report", DefaultDirReport, "Report by directory")
+	flag.BoolVar(&d.errorReport, "error_report", DefaultErrorReport, "Report of errors")
 	flag.StringVar(&d.exclude, "exclude", DefaultExclude, "Regexs of Directories/files to exclude, separated by |")
 	flag.StringVar(&d.iexclude, "iexclude", DefaultIexclude, "Regexs of Directories/files to exclude, separated by |")
 	flag.BoolVar(&d.extra, "extra", DefaultExtra, "Cache extra attributes")
 	flag.UintVar(&d.freq, "frequency", DefaultFrequency, "Reporting frequency")
 	flag.StringVar(&d.hash, "hash", DefaultHash, "Hash type")
 	flag.BoolVar(&d.help, "help", false, "Display help")
+	flag.BoolVar(&d.ignoredReport, "ignored_report", DefaultIgnoredReport, "Report of ignored files")
 	flag.StringVar(&d.mask, "mask", DefaultMask, "File mask")
 	flag.UintVar(&d.minDirLength, "min_dir_len", minDirLength, "Minimum directory length")
 	flag.UintVar(&d.minFiles, "min_files", DefaultMinFiles, "Minimum files")
@@ -386,10 +394,6 @@ func (d *Dupless) reportBySize() {
 }
 
 func (d *Dupless) reportIgnored() {
-	if len(d.ignoredDirs) == 0 {
-		return
-	}
-
 	fmt.Printf("\nIgnored Files/Directories Report\n\n")
 
 	i := 0
@@ -403,6 +407,24 @@ func (d *Dupless) reportIgnored() {
 	for _, dir := range dirs {
 		for _, other := range d.ignoredDirs[dir] {
 			fmt.Printf("%-10s: %s\n", other.Type, other.Path)
+		}
+	}
+}
+
+func (d *Dupless) reportErrors() {
+	fmt.Printf("\nError Files/Directories Report\n\n")
+
+	i := 0
+	dirs := make([]string, len(d.errorDirs))
+	for dir := range d.errorDirs {
+		dirs[i] = dir
+		i++
+	}
+	sort.Strings(dirs)
+
+	for _, dir := range dirs {
+		for _, other := range d.errorDirs[dir] {
+			fmt.Printf("%s: %s\n", other.Path, other.Error)
 		}
 	}
 }
@@ -852,6 +874,12 @@ func main() {
 		os.Exit(0)
 	}
 
+	if dupless.errorReport {
+		dupless.reportErrors()
+	}
+	if dupless.ignoredReport {
+		dupless.reportIgnored()
+	}
 	if dupless.dirReport {
 		dupless.reportByDir()
 	}

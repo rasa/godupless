@@ -147,7 +147,7 @@ func (f *File) Type() string {
 		return "directory"
 	}
 	if f.mode&os.ModeSymlink != 0 {
-		return "Symlink"
+		return "symlink"
 	}
 	if f.mode&os.ModeDevice != 0 {
 		return "device"
