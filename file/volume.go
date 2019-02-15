@@ -28,7 +28,12 @@ func visit(path string, fi os.FileInfo, err error) error {
 		}
 	}
 	// see https://groups.google.com/forum/#!topic/golang-nuts/mu8XMmRXMOk
-	rdev := uint64(fi.Sys().(*syscall.Stat_t).Rdev)
+	s, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("conversion to *syscall.Stat_t failed")
+	}
+	
+	rdev := uint64(s.Rdev)
 	devMap[rdev] = path
 	return nil
 }
