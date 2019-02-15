@@ -26,8 +26,12 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 	f.mode = fi.Mode()
 	f.mtime = fi.ModTime()
 
-	f.atime = time.Unix(0, fi.Sys().(*syscall.Win32FileAttributeData).LastAccessTime.Nanoseconds())
-	f.ctime = time.Unix(0, fi.Sys().(*syscall.Win32FileAttributeData).CreationTime.Nanoseconds())
+	s, ok := fi.Sys().(*syscall.Win32FileAttributeData)
+	if !ok {
+		return nil, errors.New("conversion to *syscall.Win32FileAttributeData failed")
+	}
+	f.atime = time.Unix(0, s.LastAccessTime.Nanoseconds())
+	f.ctime = time.Unix(0, s.CreationTime.Nanoseconds())
 
 	pathp, err := syscall.UTF16PtrFromString(f.path)
 	if err != nil {
