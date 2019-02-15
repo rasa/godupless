@@ -1,9 +1,11 @@
 package util
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -64,6 +66,13 @@ func NormalizePath(path string) string {
 		return strings.Replace(path, "\\", "/", -1)
 	}
 	return path
+}
+
+// Pause @todo
+func Pause() {
+	fmt.Print("Press 'Enter' to continue: ")
+	bufio.NewReader(os.Stdin).ReadBytes('\n')
+	fmt.Printf("\n")
 }
 
 // TimespecToTime @todo

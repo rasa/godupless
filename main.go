@@ -2,7 +2,6 @@
 package main
 
 import (
-	"bufio"
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -369,7 +368,11 @@ func (d *Dupless) reportBySize() {
 			d.p.Printf("Size: %d (%s)\n", size, hash)
 			for i, f := range files {
 				totalSize += size
-				fmt.Printf("  %d: %s\n", i+1, f.Path())
+				var s string
+				if f.Links() > 1 {
+					s = fmt.Sprintf(" (%d hard links)", f.Links())
+				}
+				fmt.Printf("  %d: %s%s\n", i+1, f.Path(), s)
 			}
 		}
 	}
@@ -404,7 +407,7 @@ func (d *Dupless) reportIgnored() {
 	}
 }
 
-func (d *Dupless) count(hashes map[uint64]map[string][]*file.File) (scanning int, total int) {
+func (d *Dupless) countFiles(hashes map[uint64]map[string][]*file.File) (scanning int, total int) {
 	scanning = 0
 	total = 0
 	for _, hashmap := range hashes {
@@ -422,7 +425,7 @@ func (d *Dupless) count(hashes map[uint64]map[string][]*file.File) (scanning int
 	return scanning, total
 }
 
-func (d *Dupless) doHash(hashes map[uint64]map[string][]*file.File) error {
+func (d *Dupless) getHash(hashes map[uint64]map[string][]*file.File) error {
 	eof := true
 	for _, hashmap := range hashes {
 		for _, files := range hashmap {
@@ -464,7 +467,7 @@ func (d *Dupless) doHash(hashes map[uint64]map[string][]*file.File) error {
 	return nil
 }
 
-func (d *Dupless) rehash(hashes map[uint64]map[string][]*file.File) (newHashes map[uint64]map[string][]*file.File) {
+func (d *Dupless) regenHashTable(hashes map[uint64]map[string][]*file.File) (newHashes map[uint64]map[string][]*file.File) {
 	newHashes = make(map[uint64]map[string][]*file.File)
 
 	for size, hashmap := range hashes {
@@ -475,7 +478,7 @@ func (d *Dupless) rehash(hashes map[uint64]map[string][]*file.File) (newHashes m
 		for _, files := range hashmap {
 			for _, f := range files {
 				if f.Err() != nil {
-					//fmt.Printf("rehash(): error: %s\n", f.Err())
+					//fmt.Printf("regenHashTable(): error: %s\n", f.Err())
 					continue
 				}
 				_, ok = newHashes[size][f.Hash()]
@@ -509,7 +512,7 @@ func (d *Dupless) rehash(hashes map[uint64]map[string][]*file.File) (newHashes m
 	return newHashes
 }
 
-func (d *Dupless) getHash() hash.Hash {
+func (d *Dupless) getHasher() hash.Hash {
 	// @todo move to constant
 	skey := "0000000000000000000000000000000000000000000000000000000000000000"
 	key, _ := hex.DecodeString(skey)
@@ -547,7 +550,7 @@ func (d *Dupless) getHash() hash.Hash {
 	return nil
 }
 
-func (d *Dupless) summarize() {
+func (d *Dupless) getHashes() {
 	//start := time.Now()
 	for path, f := range d.files {
 		_, ok := d.uniques[f.UniqueID()]
@@ -586,7 +589,7 @@ func (d *Dupless) summarize() {
 
 	sort.Sort(sort.Reverse(Uint64Slice(sizes)))
 
-	h := d.getHash()
+	h := d.getHasher()
 
 	defaultHash := fmt.Sprintf("%x", h.Sum(nil))
 
@@ -608,42 +611,40 @@ func (d *Dupless) summarize() {
 
 	//util.Dump("hashes=", hashes)
 
+	if len(sizes) < 1 {
+		return
+	}
+
 	loops := (sizes[0] / uint64(d.chunk)) + 1
 
 	loop := 0
 	read := uint64(0)
 	for {
 		loop++
-		scanning, total := d.count(hashes)
+		scanning, total := d.countFiles(hashes)
 		d.p.Printf("Loop %d of %d: %d of %d bytes read: scanning %d of %d files (%d unique sizes)\n", loop, loops, read, sizes[0], scanning, total, len(hashes))
 		read += uint64(d.chunk)
-		err := d.doHash(hashes)
+		err := d.getHash(hashes)
 		if err == io.EOF {
-			fmt.Println("io_EOF")
+			fmt.Println("All files have been hashed")
 			break
 		}
 		if err != nil {
 			fmt.Println(err)
 		}
-		newHashes := d.rehash(hashes)
+		newHashes := d.regenHashTable(hashes)
 		hashes = newHashes
 		if len(hashes) == 0 {
-			fmt.Println("len(hashes)=0")
+			fmt.Println("No files left to hash")
 			break
 		}
 	}
 	//elapsed := time.Since(start)
-	//_, total := d.count(hashes)
+	//_, total := d.countFiles(hashes)
 	//fmt.Printf("\nHashed %d files in %s\n", total, elapsed)
-	//pause()
+	//util.Pause()
 	//util.Dump("hashes=", hashes)
 	d.hashes = hashes
-}
-
-func pause() {
-	fmt.Print("Press 'Enter' to continue:")
-	bufio.NewReader(os.Stdin).ReadBytes('\n')
-	fmt.Printf("\n")
 }
 
 func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
@@ -713,7 +714,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			}
 		}
 
-		f, e := file.NewFile(path, fi, d.getHash())
+		f, e := file.NewFile(path, fi, d.getHasher())
 		if e != nil {
 			s := fmt.Sprintf("Cannot stat '%s': %s", path, e)
 			d.addError(path, s)
@@ -841,7 +842,7 @@ func main() {
 
 	start2 := time.Now()
 
-	dupless.summarize()
+	dupless.getHashes()
 
 	elapsed2 := time.Since(start2)
 	elapsed3 := time.Since(start)
@@ -858,7 +859,7 @@ func main() {
 		dupless.reportBySize()
 	}
 	fmt.Printf("\nFound %d matching files in %s\n", len(dupless.files), elapsed)
-	_, total := dupless.count(dupless.hashes)
+	_, total := dupless.countFiles(dupless.hashes)
 	fmt.Printf("Hashed %d files in %s\n", total, elapsed2)
 	fmt.Printf("Total elapsed time: %s\n", elapsed3)
 }

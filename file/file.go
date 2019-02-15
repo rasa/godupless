@@ -133,6 +133,11 @@ func (f *File) Ctime() time.Time {
 	return f.ctime
 }
 
+// Links @todo
+func (f *File) Links() uint64 {
+	return f.nlinks
+}
+
 // Type @todo
 func (f *File) Type() string {
 	if f.mode&os.ModeType == 0 {
