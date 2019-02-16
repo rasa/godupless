@@ -235,7 +235,7 @@ func (d *Dupless) init() {
 	d.config.hash = strings.ToLower(d.config.hash)
 	_, ok := Hashmap[d.config.hash]
 	if !ok {
-		fmt.Printf("Hash must be one of %s", hashlist)
+		fmt.Printf("Hash must be one of %s", hash)
 		os.Exit(1)
 	}
 	
