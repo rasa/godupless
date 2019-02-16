@@ -10,6 +10,13 @@ import (
 	"github.com/rasa/godupless/util"
 )
 
+var ExcludePaths = []string{
+	"^/dev$",
+	"^/proc$",
+	"^/run$",
+	"^/sys$",
+}
+
 // These stat field names may need to be renamed later
 // see https://github.com/golang/go/issues/29393
 
