@@ -10,6 +10,13 @@ import (
 	"github.com/rasa/godupless/util"
 )
 
+var ExcludePaths = []string{
+	"^/dev$",
+	"^/proc$",
+	"^/run$",
+	"^/sys$",
+}
+
 func (f *File) stat(fi os.FileInfo) (err error) {
 	if fi == nil {
 		fi, err = os.Lstat(f.path)
