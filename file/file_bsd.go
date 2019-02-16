@@ -10,6 +10,8 @@ import (
 	"github.com/rasa/godupless/util"
 )
 
+const MinDirLength = 3
+
 var ExcludePaths = []string{
 	"^/dev$",
 	"^/proc$",
