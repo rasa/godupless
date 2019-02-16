@@ -96,7 +96,7 @@ var config = Config{
 	//cache: "godupless.cache",
 	chunk: 2 << 19, // 2<<19=2^20=1,048,576
 	//separator: ",",
-	//exclude: "",
+	//exclude: "'
 	//extra: false,
 	freq: 100,
 	hash: "highway",
@@ -202,27 +202,15 @@ func (d *Dupless) init() {
 	flag.Parse()
 
 	if d.config.chunk < MinChunk || d.config.chunk > MaxChunk {
-		fmt.Printf("Chunk must be between %d and %d: %d", MinChunk, MaxChunk, d.config.chunk)
+		fmt.Printf("Chunk must be between %d and %d", MinChunk, MaxChunk)
 		os.Exit(1)
 	}
 
 	d.config.hash = strings.ToLower(d.config.hash)
 
-	if runtime.GOOS != "windows" {
-		d.excludes = []string{
-			"^/dev$",
-			"^/proc$",
-			"^/run$",
-			"^/sys$",
-		}
-	} else {
-		// @todo ignore all hidden/system directories?
-		d.excludes = []string{
-			`(?i)^[A-Z]:/$Recycle\.bin`,
-			`(?i)^[A-Z]:/System Volume Information`,
-		}
-	}
-
+	// @todo ignore all hidden/system directories?
+	d.excludes = file.ExcludePaths
+	
 	if d.config.exclude != "" {
 		a := strings.Split(d.config.exclude, "|")
 		for _, s := range a {
