@@ -10,11 +10,6 @@ import (
 	"time"
 )
 
-var ExcludePaths = []string{
-	`(?i)^[A-Z]:/$Recycle\.bin`,
-	`(?i)^[A-Z]:/System Volume Information`,
-}
-
 // https://github.com/vinely/disks/blob/master/check_windows.go
 // see https://docs.microsoft.com/en-us/windows/desktop/fileio/displaying-volume-paths
 // or https://blog.csdn.net/hurricane_0x01/article/details/51516550
