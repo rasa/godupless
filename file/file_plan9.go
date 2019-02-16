@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const MinDirLength = 2
+
 var ExcludePaths = []string{
 	"^/dev$",
 	"^/proc$",
