@@ -30,15 +30,19 @@ import (
 )
 
 const (
-	MinChunk = 2 << 12 // 4096
-	MaxChunk = 2 << 24 // 16,777,216
+	// MinChunk minimum chunk size, should be a power of 2
+	MinChunk = 2 << 12 // 4K
+	// MaxChunk maximum chunk size, should be a power of 2
+	MaxChunk = 2 << 30 // 1G
+	// MinMinFiles Mininum number of the minimum files to compare to hash
+	MinMinFiles = 2
 )
 
 // Dir @todo
 type Dir struct {
-	// Count @todo
+	// Count number of duplicate files in the directory
 	Count uint64
-	// Size @todo
+	// Size total size of the duplicate files in the directory
 	Size uint64
 }
 
@@ -93,17 +97,16 @@ type Config struct {
 }
 
 var config = Config{
-	//cache: "godupless.cache",
+	// cache: "godupless.cache",
 	chunk: 2 << 19, // 2<<19=2^20=1,048,576
-	//separator: ",",
+	// separator: ",",
 	//exclude: "'
-	//extra: false,
+	// extra: false,
 	freq: 100,
 	hash: "highway",
 	//help: false,
 	//iexclude: "",
 	//mask: "",
-	minDirLength: 2,
 	minFiles:     2,
 	minSize:      2 << 20, // 2<<20=2^21=2,097,152
 	//recursive: false,
@@ -114,6 +117,18 @@ var config = Config{
 	//errorReport: false,
 	//ignoredReport: false,
 	sizeReport: true,
+}
+
+var Hashmap = map[string]bool{
+	"highway": true,
+	"highway64": true,
+	"highway128": true,
+	"highway256": true,
+	"md5": true,
+	"sha1": true,
+	"sha256": true,
+	"sha512": true,
+	"xxhash": true,
 }
 
 // Stats @todo
@@ -131,24 +146,25 @@ type Stats struct {
 type Dupless struct {
 	config   Config
 	stats    Stats
+	p        *message.Printer
+	
 	excludes []string
 	masks    []string
-	p        *message.Printer
 	path     string
 	dev      string
 	lastDev  string
 	volume   string
 
-	cacheFH *os.File
+	//cacheFH *os.File
 	// comma   rune
 
-	// dirs[dir] = *Dir
-	// errorDirs[dir] = *ErrorRec[]
-	// ignoredDirs[dir] = *IgnoredRec[]
+	// dirs[dir] = *Dir{Count, Size}
+	// errorDirs[dir] = []*ErrorRec{Path, Error}
+	// ignoredDirs[dir] = []*IgnoredRec{Path, Type}
 	// files[path] = *file.File
-	// uniques[uniqueID] = paths[]
-	// sizes[size][uniqueIDs] = paths[]
-	// hashes[size][hash] = *file.File[]
+	// uniques[uniqueID] = []paths
+	// sizes[size][uniqueIDs] = []paths
+	// hashes[size][hash] = []*file.File
 	dirs        map[string]*Dir
 	errorDirs   map[string][]*ErrorRec
 	ignoredDirs map[string][]*IgnoredRec
@@ -168,36 +184,46 @@ func (p Uint64Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 // Sort is a convenience method.
 func (p Uint64Slice) Sort() { sort.Sort(p) }
 
-// utility functions
-
 func (d *Dupless) init() {
-	d.config = config
-	minDirLength := d.config.minDirLength
-	if runtime.GOOS == "windows" {
-		// c:/
-		minDirLength = 3
-	}
+	d.dirs = make(map[string]*Dir)
+	d.errorDirs = make(map[string][]*ErrorRec)
+	d.ignoredDirs = make(map[string][]*IgnoredRec)
+	d.files = make(map[string]*file.File)
+	d.uniques = make(map[string][]string)
+	d.sizes = make(map[uint64]map[string][]*file.File)
 
+	d.config = config
+	
+	// @todo determine language from OS
+	d.p = message.NewPrinter(language.English)
+
+	chunk := fmt.Sprintf("Hash chunk size (%d to %d)", MinChunk, MaxChunk)
+	
+	var hashes []string
+	for k, _ := range Hashmap {
+		hashes = append(hashes, k)
+	}
+	hash := "Hash type: " + strings.Join(hashes, ", ")
+	
 	// flag.StringVar(&d.config.cache, "cache", DefaultCache, "Cache filename")
-	flag.UintVar(&d.config.chunk, "chunk", d.config.chunk, "Hash chunk")
+	flag.UintVar(&d.config.chunk, "chunk", d.config.chunk, chunk)
 	flag.BoolVar(&d.config.dirReport, "dir_report", d.config.dirReport, "Report by directory")
 	flag.BoolVar(&d.config.errorReport, "error_report", d.config.errorReport, "Report of errors")
-	flag.StringVar(&d.config.exclude, "exclude", d.config.exclude, "Regex(s) of Directories/files to exclude, separated by |")
-	flag.StringVar(&d.config.iexclude, "iexclude", d.config.iexclude, "Regex(s) of Directories/files to exclude, separated by |")
+	flag.StringVar(&d.config.exclude, "exclude", d.config.exclude, "Regex(s) of directories/files to exclude, separated by |")
+	flag.StringVar(&d.config.iexclude, "iexclude", d.config.iexclude, "Regex(s) of directories/files to exclude, separated by |")
 	//flag.BoolVar(&d.config.extra, "extra", d.config.extra, "Cache extra attributes")
 	flag.UintVar(&d.config.freq, "frequency", d.config.freq, "Reporting frequency")
-	flag.StringVar(&d.config.hash, "hash", d.config.hash, "Hash type")
+	flag.StringVar(&d.config.hash, "hash", d.config.hash, hash)
 	flag.BoolVar(&d.config.help, "help", d.config.help, "Display help")
 	flag.BoolVar(&d.config.ignoredReport, "ignored_report", d.config.ignoredReport, "Report of ignored files")
 	flag.StringVar(&d.config.mask, "mask", d.config.mask, "File mask(s), seperated by |")
-	flag.UintVar(&d.config.minDirLength, "min_dir_len", minDirLength, "Minimum directory length")
-	flag.UintVar(&d.config.minFiles, "min_files", d.config.minFiles, "Minimum files")
+	flag.UintVar(&d.config.minFiles, "min_files", d.config.minFiles, "Minimum files to compare")
 	flag.Uint64Var(&d.config.minSize, "min_size", d.config.minSize, "Minimum file size")
 	flag.BoolVar(&d.config.recursive, "recursive", d.config.recursive, "Report directories recursively")
 	flag.BoolVar(&d.config.sizeReport, "size_report", d.config.sizeReport, "Report by size")
 	//flag.StringVar(&d.config.seperator, "separator", d.config.seperator, "Field separator")
 	// flag.BoolVar(&d.config.utc, "utc", d.config.utc, "Report times in UTC")
-	flag.UintVar(&d.config.verbose, "verbose", d.config.verbose, "Be more verbose")
+	flag.UintVar(&d.config.verbose, "verbose", d.config.verbose, "Increase log verbosity")
 
 	flag.Parse()
 
@@ -207,6 +233,16 @@ func (d *Dupless) init() {
 	}
 
 	d.config.hash = strings.ToLower(d.config.hash)
+	_, ok := Hashmap[d.config.hash]
+	if !ok {
+		fmt.Printf("Hash must be one of %s", hashlist)
+		os.Exit(1)
+	}
+	
+	if d.config.minFiles < MinMinFiles {
+		fmt.Printf("Mininum files to compare must be %d or greater", MinMinFiles)
+		os.Exit(1)
+	}
 
 	// @todo ignore all hidden/system directories?
 	d.excludes = file.ExcludePaths
@@ -243,23 +279,12 @@ func (d *Dupless) init() {
 		}
 		d.comma = value
 	*/
-
-	d.dirs = make(map[string]*Dir)
-	d.errorDirs = make(map[string][]*ErrorRec)
-	d.ignoredDirs = make(map[string][]*IgnoredRec)
-
-	d.files = make(map[string]*file.File)
-	d.uniques = make(map[string][]string)
-	d.sizes = make(map[uint64]map[string][]*file.File)
-
-	// @todo determine language from OS
-	d.p = message.NewPrinter(language.English)
 }
 
 func (d *Dupless) addPath(path string, size uint64) {
 	for {
 		dir := util.Dirname(path)
-		if uint(len(dir)) < d.config.minDirLength {
+		if uint(len(dir)) < file.MinDirLength {
 			return
 		}
 		if dir == path {
@@ -469,7 +494,7 @@ func (d *Dupless) getHash(hashes map[uint64]map[string][]*file.File) error {
 					//fmt.Printf("Opening %s\n", f.Path())
 					err := f.Open()
 					if err != nil {
-						fmt.Printf("doHash: %s\n", err)
+						fmt.Printf("getHash: %s\n", err)
 						continue
 					}
 				}
@@ -481,11 +506,11 @@ func (d *Dupless) getHash(hashes map[uint64]map[string][]*file.File) error {
 				}
 				if err != io.EOF {
 					// don't set eof to false on errors
-					fmt.Printf("dohash: %s\n", err)
+					fmt.Printf("gethash: %s\n", err)
 				}
 				err = f.Close()
 				if err != nil {
-					fmt.Printf("dohash: %s\n", err)
+					fmt.Printf("gethash: %s\n", err)
 				}
 			}
 		}
