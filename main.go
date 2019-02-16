@@ -107,8 +107,8 @@ var config = Config{
 	//help: false,
 	//iexclude: "",
 	//mask: "",
-	minFiles:     2,
-	minSize:      2 << 20, // 2<<20=2^21=2,097,152
+	minFiles: 2,
+	minSize:  2 << 20, // 2<<20=2^21=2,097,152
 	//recursive: false,
 	// utc: false,
 	//verbose: 0,
@@ -119,16 +119,17 @@ var config = Config{
 	sizeReport: true,
 }
 
+// Hashmap list of hash methods
 var Hashmap = map[string]bool{
-	"highway": true,
-	"highway64": true,
+	"highway":    true,
+	"highway64":  true,
 	"highway128": true,
 	"highway256": true,
-	"md5": true,
-	"sha1": true,
-	"sha256": true,
-	"sha512": true,
-	"xxhash": true,
+	"md5":        true,
+	"sha1":       true,
+	"sha256":     true,
+	"sha512":     true,
+	"xxhash":     true,
 }
 
 // Stats @todo
@@ -144,10 +145,10 @@ type Stats struct {
 
 // Dupless @todo
 type Dupless struct {
-	config   Config
-	stats    Stats
-	p        *message.Printer
-	
+	config Config
+	stats  Stats
+	p      *message.Printer
+
 	excludes []string
 	masks    []string
 	path     string
@@ -193,18 +194,18 @@ func (d *Dupless) init() {
 	d.sizes = make(map[uint64]map[string][]*file.File)
 
 	d.config = config
-	
+
 	// @todo determine language from OS
 	d.p = message.NewPrinter(language.English)
 
 	chunk := fmt.Sprintf("Hash chunk size (%d to %d)", MinChunk, MaxChunk)
-	
+
 	var hashes []string
-	for k, _ := range Hashmap {
+	for k := range Hashmap {
 		hashes = append(hashes, k)
 	}
 	hash := "Hash type: " + strings.Join(hashes, ", ")
-	
+
 	// flag.StringVar(&d.config.cache, "cache", DefaultCache, "Cache filename")
 	flag.UintVar(&d.config.chunk, "chunk", d.config.chunk, chunk)
 	flag.BoolVar(&d.config.dirReport, "dir_report", d.config.dirReport, "Report by directory")
@@ -238,7 +239,7 @@ func (d *Dupless) init() {
 		fmt.Printf("Hash must be one of %s", hash)
 		os.Exit(1)
 	}
-	
+
 	if d.config.minFiles < MinMinFiles {
 		fmt.Printf("Mininum files to compare must be %d or greater", MinMinFiles)
 		os.Exit(1)
@@ -246,7 +247,7 @@ func (d *Dupless) init() {
 
 	// @todo ignore all hidden/system directories?
 	d.excludes = file.ExcludePaths
-	
+
 	if d.config.exclude != "" {
 		a := strings.Split(d.config.exclude, "|")
 		for _, s := range a {

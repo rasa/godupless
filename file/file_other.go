@@ -8,8 +8,10 @@ import (
 	"time"
 )
 
+// MinDirLength @todo
 const MinDirLength = 2
 
+// ExcludePaths @todo
 var ExcludePaths = []string{
 	"^/dev$",
 	"^/proc$",
