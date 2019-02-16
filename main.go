@@ -119,17 +119,42 @@ var config = Config{
 	sizeReport: true,
 }
 
+const skey := "0000000000000000000000000000000000000000000000000000000000000000"
+var hashKey []byte
+
+func init() [
+	hashKey, _ = hex.DecodeString(skey)
+}
+
+// HashFunc @todo
+type HashFunc func ()hash.Hash
+	
+func highway64New() hash.Hash {
+	h, _ := highwayhash.New64(hashKey)
+	return h
+}
+
+func highway128New() hash.Hash {
+	h, _ := highwayhash.New128(hashKey)
+	return h
+}
+
+func highway256New() hash.Hash {
+		h, _ := highwayhash.New(hashKey)
+		return h
+}
+
 // Hashmap list of hash methods
-var Hashmap = map[string]bool{
-	"highway":    true,
-	"highway64":  true,
-	"highway128": true,
-	"highway256": true,
-	"md5":        true,
-	"sha1":       true,
-	"sha256":     true,
-	"sha512":     true,
-	"xxhash":     true,
+var Hashmap = map[string]HashFunc {
+	"highway":    highway256New,
+	"highway64":  highway64New,
+	"highway128": highway128New,
+	"highway256": highway256New,
+	"md5":        md5.New,
+	"sha1":       sha1.New,
+	"sha256":     sha256.New,
+	"sha512":     sha512.New,
+	"xxhash":     xxhash.New,
 }
 
 // Stats @todo
@@ -155,7 +180,7 @@ type Dupless struct {
 	dev      string
 	lastDev  string
 	volume   string
-
+	hashFunc HashFunc
 	//cacheFH *os.File
 	// comma   rune
 
@@ -234,7 +259,7 @@ func (d *Dupless) init() {
 	}
 
 	d.config.hash = strings.ToLower(d.config.hash)
-	_, ok := Hashmap[d.config.hash]
+	d.hashFunc, ok := Hashmap[d.config.hash]
 	if !ok {
 		fmt.Printf("Hash must be one of %s", hash)
 		os.Exit(1)
@@ -305,8 +330,8 @@ func (d *Dupless) addPath(path string, size uint64) {
 	}
 }
 
-func (d *Dupless) progress(final bool) {
-	if !final && (d.config.freq == 0 || d.stats.hits%d.config.freq != 0) {
+func (d *Dupless) progress(force bool) {
+	if !force && (d.config.freq == 0 || d.stats.hits%d.config.freq != 0) {
 		return
 	}
 
@@ -315,10 +340,6 @@ func (d *Dupless) progress(final bool) {
 		dev += " (" + d.volume + ")"
 	}
 	d.p.Printf("\r%11d %11d %11d %11d %11d %s", d.stats.skipped, d.stats.matched, d.stats.directories, d.stats.ignored, d.stats.errors, dev)
-
-	if final {
-		fmt.Println("")
-	}
 }
 
 func (d *Dupless) addError(path string, s string) {
@@ -567,44 +588,6 @@ func (d *Dupless) regenHashTable(hashes map[uint64]map[string][]*file.File) (new
 	return newHashes
 }
 
-func (d *Dupless) getHasher() hash.Hash {
-	// @todo move to constant
-	skey := "0000000000000000000000000000000000000000000000000000000000000000"
-	key, _ := hex.DecodeString(skey)
-
-	switch d.config.hash {
-	case "highway64":
-		h, _ := highwayhash.New64(key)
-		return h
-	case "highway128":
-		h, _ := highwayhash.New128(key)
-		return h
-	case "highway256", "highway":
-		h, _ := highwayhash.New(key)
-		return h
-	case "md5":
-		h := md5.New()
-		return h
-	case "sha1":
-		h := sha1.New()
-		return h
-	case "sha256":
-		h := sha256.New()
-		return h
-	case "sha512":
-		h := sha512.New()
-		return h
-	case "xxhash":
-		h := xxhash.New()
-		return h
-	default:
-		fmt.Fprintf(os.Stderr, "\nUnknown hash format: '%s'\n", d.config.hash)
-		os.Exit(1)
-	}
-
-	return nil
-}
-
 func (d *Dupless) getHashes() bool {
 	for path, f := range d.files {
 		_, ok := d.uniques[f.UniqueID()]
@@ -778,7 +761,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			}
 		}
 
-		f, e := file.NewFile(path, fi, d.getHasher())
+		f, e := file.NewFile(path, fi, d.hashFunc)
 		if e != nil {
 			s := fmt.Sprintf("Cannot stat '%s': %s", path, e)
 			d.addError(path, s)
