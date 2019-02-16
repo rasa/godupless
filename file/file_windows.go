@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const MinDirLength = 3
+
 var ExcludePaths = []string{
 	`(?i)^[A-Z]:/$Recycle\.bin`,
 	`(?i)^[A-Z]:/System Volume Information`,
