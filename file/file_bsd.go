@@ -10,7 +10,7 @@ import (
 	"github.com/rasa/godupless/util"
 )
 
-const MinDirLength = 3
+const MinDirLength = 2
 
 var ExcludePaths = []string{
 	"^/dev$",
