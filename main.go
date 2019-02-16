@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/cespare/xxhash"
+	"github.com/cloudfoundry/jibber_jabber"
 	"github.com/minio/highwayhash"
 	"github.com/rasa/godupless/file"
 	"github.com/rasa/godupless/util"
@@ -30,8 +31,10 @@ import (
 )
 
 const (
+	// DefaultLanguage is the default language to display numbers in
+	DefaultLanguage = "en" // English
 	// MinChunk minimum chunk size, should be a power of 2
-	MinChunk = 2 << 12 // 4K
+	MinChunk = 2 //2 << 12 // 4K
 	// MaxChunk maximum chunk size, should be a power of 2
 	MaxChunk = 2 << 30 // 1G
 	// MinMinFiles Mininum number of the minimum files to compare to hash
@@ -88,7 +91,7 @@ type Config struct {
 	minSize      uint64
 	recursive    bool
 	// utc          bool
-	verbose uint
+	verbose int
 
 	dirReport     bool
 	errorReport   bool
@@ -98,9 +101,9 @@ type Config struct {
 
 var config = Config{
 	// cache: "godupless.cache",
-	chunk: 2 << 19, // 2<<19=2^20=1,048,576
+	chunk: 2 << 16, // 2<<16 = 2^17 = 131,072
 	// separator: ",",
-	//exclude: "'
+	//exclude: "",
 	// extra: false,
 	freq: 100,
 	hash: "highway",
@@ -108,7 +111,7 @@ var config = Config{
 	//iexclude: "",
 	//mask: "",
 	minFiles: 2,
-	minSize:  2 << 20, // 2<<20=2^21=2,097,152
+	minSize:  2 << 20, // 2<<20 = 2^21 = 2,097,152
 	//recursive: false,
 	// utc: false,
 	//verbose: 0,
@@ -119,33 +122,35 @@ var config = Config{
 	sizeReport: true,
 }
 
-const skey := "0000000000000000000000000000000000000000000000000000000000000000"
-var hashKey []byte
+const hashKey = "0000000000000000000000000000000000000000000000000000000000000000"
 
-func init() [
-	hashKey, _ = hex.DecodeString(skey)
+var hashBytes []byte
+
+func init() {
+	hashBytes, _ = hex.DecodeString(hashKey)
 }
 
-// HashFunc @todo
-type HashFunc func ()hash.Hash
-	
 func highway64New() hash.Hash {
-	h, _ := highwayhash.New64(hashKey)
+	h, _ := highwayhash.New64(hashBytes)
 	return h
 }
 
 func highway128New() hash.Hash {
-	h, _ := highwayhash.New128(hashKey)
+	h, _ := highwayhash.New128(hashBytes)
 	return h
 }
 
 func highway256New() hash.Hash {
-		h, _ := highwayhash.New(hashKey)
-		return h
+	h, _ := highwayhash.New(hashBytes)
+	return h
+}
+
+func xxhashNew() hash.Hash {
+	return xxhash.New()
 }
 
 // Hashmap list of hash methods
-var Hashmap = map[string]HashFunc {
+var Hashmap = map[string]func() hash.Hash{
 	"highway":    highway256New,
 	"highway64":  highway64New,
 	"highway128": highway128New,
@@ -154,7 +159,7 @@ var Hashmap = map[string]HashFunc {
 	"sha1":       sha1.New,
 	"sha256":     sha256.New,
 	"sha512":     sha512.New,
-	"xxhash":     xxhash.New,
+	"xxhash":     xxhashNew,
 }
 
 // Stats @todo
@@ -180,7 +185,7 @@ type Dupless struct {
 	dev      string
 	lastDev  string
 	volume   string
-	hashFunc HashFunc
+	hashFunc func() hash.Hash
 	//cacheFH *os.File
 	// comma   rune
 
@@ -220,8 +225,14 @@ func (d *Dupless) init() {
 
 	d.config = config
 
-	// @todo determine language from OS
-	d.p = message.NewPrinter(language.English)
+	userLanguage, err := jibber_jabber.DetectLanguage()
+	if err != nil {
+		userLanguage = DefaultLanguage
+	}
+	//fmt.Println("Language:", userLanguage)
+
+	tagLanguage := language.Make(userLanguage)
+	d.p = message.NewPrinter(tagLanguage) // language.English)
 
 	chunk := fmt.Sprintf("Hash chunk size (%d to %d)", MinChunk, MaxChunk)
 
@@ -249,7 +260,7 @@ func (d *Dupless) init() {
 	flag.BoolVar(&d.config.sizeReport, "size_report", d.config.sizeReport, "Report by size")
 	//flag.StringVar(&d.config.seperator, "separator", d.config.seperator, "Field separator")
 	// flag.BoolVar(&d.config.utc, "utc", d.config.utc, "Report times in UTC")
-	flag.UintVar(&d.config.verbose, "verbose", d.config.verbose, "Increase log verbosity")
+	flag.IntVar(&d.config.verbose, "verbose", d.config.verbose, "Increase log verbosity")
 
 	flag.Parse()
 
@@ -259,7 +270,7 @@ func (d *Dupless) init() {
 	}
 
 	d.config.hash = strings.ToLower(d.config.hash)
-	d.hashFunc, ok := Hashmap[d.config.hash]
+	_, ok := Hashmap[d.config.hash]
 	if !ok {
 		fmt.Printf("Hash must be one of %s", hash)
 		os.Exit(1)
@@ -336,7 +347,7 @@ func (d *Dupless) progress(force bool) {
 	}
 
 	dev := d.dev
-	if d.volume > "" {
+	if d.volume > "" && dev != d.volume {
 		dev += " (" + d.volume + ")"
 	}
 	d.p.Printf("\r%11d %11d %11d %11d %11d %s", d.stats.skipped, d.stats.matched, d.stats.directories, d.stats.ignored, d.stats.errors, dev)
@@ -634,7 +645,8 @@ func (d *Dupless) getHashes() bool {
 
 	sort.Sort(sort.Reverse(Uint64Slice(sizes)))
 
-	h := d.getHasher()
+	f := Hashmap[d.config.hash]
+	h := f()
 
 	defaultHash := fmt.Sprintf("%x", h.Sum(nil))
 
@@ -663,11 +675,13 @@ func (d *Dupless) getHashes() bool {
 	for {
 		loop++
 		scanning, total := d.countFiles(hashes)
-		d.p.Printf("Loop %d of %d: %d of %d bytes read: scanning %d of %d files (%d unique sizes)\n", loop, loops, read, sizes[0], scanning, total, len(hashes))
+		if d.config.verbose >= 0 {
+			d.p.Printf("Loop %d of %d: %d of %d bytes read: scanning %d of %d files (%d unique sizes)\n", loop, loops, read, sizes[0], scanning, total, len(hashes))
+		}
 		read += uint64(d.config.chunk)
 		err := d.getHash(hashes)
 		if err == io.EOF {
-			fmt.Println("All files have been hashed")
+			fmt.Println("\nAll files have been hashed")
 			break
 		}
 		if err != nil {
@@ -680,18 +694,11 @@ func (d *Dupless) getHashes() bool {
 		}
 	}
 
-	//elapsed := time.Since(start)
-	//_, total := d.countFiles(hashes)
-	//fmt.Printf("\nHashed %d files in %s\n", total, elapsed)
 	//util.Pause()
 	//util.Dump("hashes=", hashes)
 	d.hashes = hashes
 
-	if len(d.hashes) < 1 {
-		return false
-	}
-
-	return true
+	return len(d.hashes) > 0
 }
 
 func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
@@ -704,6 +711,8 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			fmt.Fprintf(os.Stderr, "\nError on '%s': %s\n", path, err)
 		}
 	}
+
+	hfunc := Hashmap[d.config.hash]
 
 	err = nil
 	for {
@@ -761,7 +770,7 @@ func (d *Dupless) visit(path string, fi os.FileInfo, err error) error {
 			}
 		}
 
-		f, e := file.NewFile(path, fi, d.hashFunc)
+		f, e := file.NewFile(path, fi, hfunc())
 		if e != nil {
 			s := fmt.Sprintf("Cannot stat '%s': %s", path, e)
 			d.addError(path, s)
@@ -818,6 +827,7 @@ func (d *Dupless) resetCounters() {
 func (d *Dupless) progressHeader() {
 	fmt.Println("")
 	d.p.Printf("Chunk size:    %d\n", d.config.chunk)
+	d.p.Printf("Hash format:   %s\n", d.config.hash)
 	d.p.Printf("Minimum files: %d\n", d.config.minFiles)
 	d.p.Printf("Minimum size:  %d\n", d.config.minSize)
 	d.p.Printf("Masks:         %v\n", d.config.mask)
@@ -942,7 +952,7 @@ func main() {
 	if ok {
 		d.doReports()
 	} else {
-		fmt.Printf("No duplicate files found\n")
+		fmt.Println("No duplicate files found")
 	}
 
 	d.footer(elapsed, elapsed2)
