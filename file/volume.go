@@ -8,22 +8,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/rasa/godupless/util"
-	
+
 	"github.com/docker/docker/pkg/mount"
 )
 
 var devMap map[uint64]string
 var volumes []string
+var volMap map[string]*mount.Info
 
 func init() {
 	devMap = make(map[uint64]string)
 	volumes = make([]string, 0)
-	// @todo load mounted volumes into volumes array
-	volumes = append(volumes, "/")
+	volMap = make(map[string]*mount.Info)
 }
+
+var donce sync.Once
+var devErr error
 
 func visit(path string, fi os.FileInfo, err error) error {
 	if fi == nil {
@@ -43,14 +48,17 @@ func visit(path string, fi os.FileInfo, err error) error {
 	return nil
 }
 
+func loadDevMap() {
+	devErr = filepath.Walk("/dev", visit)
+	util.Dump("devMap=", devMap)
+}
+
 // VolumeName @todo
 func (f *File) VolumeName() (volume string, err error) {
 	volume = fmt.Sprintf("%x", f.volumeID)
-	if len(devMap) == 0 {
-		err := filepath.Walk("/dev", visit)
-		if err != nil {
-			return volume, err
-		}
+	donce.Do(loadDevMap)
+	if devErr != nil {
+		return volume, devErr
 	}
 	vol, ok := devMap[f.volumeID]
 	if ok {
@@ -59,23 +67,46 @@ func (f *File) VolumeName() (volume string, err error) {
 	return volume, nil
 }
 
-func filterFunc(*mount.Info) (skip, stop bool) {
+func filterFunc(i *mount.Info) (skip, stop bool) {
 	return false, false
+}
+
+var pathToIgnore = []string{
+	"/dev",
+	"/proc",
+	"/run",
+	"/sys",
+}
+
+var vonce sync.Once
+var volErr error
+
+func loadVolumeMap() {
+	var mounts []*mount.Info
+	mounts, volErr = mount.GetMounts(filterFunc)
+	util.Dump("mounts=", mounts)
+Loop:
+	for _, mount := range mounts {
+		for _, path := range pathToIgnore {
+			if strings.HasPrefix(mount.Mountpoint, path) {
+				continue Loop
+			}
+		}
+		volMap[mount.Mountpoint] = mount
+		volumes = append(volumes, mount.Mountpoint)
+	}
 }
 
 // GetVolumes @todo
 func GetVolumes() ([]string, error) {
-	var err error
-	infoslice, err := mount.GetMounts(filterFunc)
-	util.Dump("infoslice=", infoslice)
-	
-	/*
-		if len(volumeMap) == 0 {
-			err := loadVolumeMap()
-			if err != nil {
-				return volumes, err
-			}
-		}
-	*/
-	return volumes, err
+	vonce.Do(loadVolumeMap)
+	util.Dump("volumes=", volumes)
+	return volumes, volErr
+}
+
+// IsVolume @todo
+func IsVolume(path string) bool {
+	vonce.Do(loadVolumeMap)
+	_, ok := volMap[path]
+	return ok
 }

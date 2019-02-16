@@ -163,3 +163,16 @@ func GetVolumes() ([]string, error) {
 	sort.Strings(volumes)
 	return volumes, err
 }
+
+// IsVolume @todo
+func IsVolume(path string) bool {
+	if len(volumeMap) == 0 {
+		_ = loadVolumeMap()
+	}
+	for _, volume := range volumeMap {
+		if volume.MountPoint == path {
+			return true
+		}
+	}
+	return false
+}

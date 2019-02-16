@@ -153,6 +153,7 @@ type Dupless struct {
 	path     string
 	dev      string
 	lastDev  string
+	volume   string
 
 	cacheFH *os.File
 	// comma   rune
@@ -193,7 +194,7 @@ func (d *Dupless) init() {
 	}
 
 	// flag.StringVar(&d.config.cache, "cache", DefaultCache, "Cache filename")
-	//flag.UintVar(&d.config.chunk, "chunk", DefaultChunk, "Hash chunk")
+	flag.UintVar(&d.config.chunk, "chunk", DefaultChunk, "Hash chunk")
 	flag.BoolVar(&d.config.dirReport, "dir_report", DefaultDirReport, "Report by directory")
 	flag.BoolVar(&d.config.errorReport, "error_report", DefaultErrorReport, "Report of errors")
 	flag.StringVar(&d.config.exclude, "exclude", DefaultExclude, "Regex(s) of Directories/files to exclude, separated by |")
@@ -216,7 +217,7 @@ func (d *Dupless) init() {
 	flag.Parse()
 
 	if d.config.chunk < 4096 || d.config.chunk > (2<<24) { // 16,777,216
-		fmt.Printf("Chunk must be between 4096 and 16777216")
+		fmt.Printf("Chunk must be between 4096 and 16777216: %d", d.config.chunk)
 		os.Exit(1)
 	}
 
@@ -310,7 +311,11 @@ func (d *Dupless) progress(final bool) {
 		return
 	}
 
-	d.p.Printf("\r%11d %11d %11d %11d %11d %s", d.stats.skipped, d.stats.matched, d.stats.directories, d.stats.ignored, d.stats.errors, d.dev)
+	dev := d.dev
+	if d.volume > "" {
+		dev += " (" + d.volume + ")"
+	}
+	d.p.Printf("\r%11d %11d %11d %11d %11d %s", d.stats.skipped, d.stats.matched, d.stats.directories, d.stats.ignored, d.stats.errors, dev)
 
 	if final {
 		fmt.Println("")
@@ -841,10 +846,12 @@ func (d *Dupless) findFiles() bool {
 	for _, arg := range flag.Args() {
 		if arg == "*" {
 			volumes, err := file.GetVolumes()
+			util.Dump("volumes=", volumes)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "\nGetVolumes() returned:", err)
 			}
 			for _, volume := range volumes {
+				fmt.Printf("volume=%q\n", volume)
 				args = append(args, volume)
 			}
 			continue
@@ -862,7 +869,12 @@ func (d *Dupless) findFiles() bool {
 			fmt.Println("")
 		}
 		d.resetCounters()
-
+		fmt.Printf("%d: arg=%s\n", i, arg)
+		if file.IsVolume(arg) {
+			d.volume = arg
+		} else {
+			d.volume = ""
+		}
 		err := filepath.Walk(arg, d.visit)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "\nWalk returned:", err)
