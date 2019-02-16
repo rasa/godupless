@@ -30,48 +30,8 @@ import (
 )
 
 const (
-	// DefaultCache @todo
-	// DefaultCache = "godupless.cache"
-
-	// DefaultChunk @todo
-	DefaultChunk = 2 << 19 // 2<<19=2^20=1,048,576
-	// DefaultDirReport @todo
-	DefaultDirReport = false
-	// DefaultErrorReport @todo
-	DefaultErrorReport = false
-	// DefaultExclude @todo
-	DefaultExclude = ""
-	// DefaultExtra @todo
-	//DefaultExtra = false
-
-	// DefaultFrequency @todo
-	DefaultFrequency = 100
-	// DefaultHash @todo
-	DefaultHash = "highway"
-	// DefaultIexclude @todo
-	DefaultIexclude = ""
-	// DefaultIgnoredReport @todo
-	DefaultIgnoredReport = false
-	// DefaultMask @todo
-	DefaultMask = ""
-	// DefaultMinFiles @todo
-	DefaultMinFiles = 2
-	// DefaultMinDirLength @todo
-	DefaultMinDirLength = uint(2)
-	// DefaultMinSize @todo
-	DefaultMinSize = 2 << 20 // 2<<20=2^21=2,097,152
-	// DefaultRecursive @todo
-	DefaultRecursive = false
-	// DefaultSeparator @todo
-	// DefaultSeparator = ","
-
-	// DefaultSizeReport @todo
-	DefaultSizeReport = true
-	// DefaultUTC @todo
-	// DefaultUTC = true
-
-	// DefaultVerbose @todo
-	DefaultVerbose = 0
+	MinChunk = 2 << 12 // 4096
+	MaxChunk = 2 << 24// 16,777,216
 )
 
 // Dir @todo
@@ -108,9 +68,9 @@ type IgnoredRec struct {
 
 // Config @todo
 type Config struct {
-	cache     string
+	//cache     string
 	chunk     uint
-	separator string
+	//separator string
 	exclude   string
 	//extra         bool
 	freq     uint
@@ -130,6 +90,30 @@ type Config struct {
 	errorReport   bool
 	ignoredReport bool
 	sizeReport    bool
+}
+
+var config = Config{
+	//cache: "godupless.cache",
+	chunk: 2 << 19, // 2<<19=2^20=1,048,576
+	//separator: ",",
+	//exclude: "",
+	//extra: false,
+	freq: 100,
+	hash: "highway",
+	//help: false,
+	//iexclude: "",
+	//mask: "",
+	minDirLength: 2,
+	minFiles: 2,
+	minSize: 2 << 20, // 2<<20=2^21=2,097,152
+	//recursive: false,
+	// utc: false,
+	//verbose: 0,
+
+	//dirReport: false,
+	//errorReport: false,
+	//ignoredReport: false,
+	sizeReport: true
 }
 
 // Stats @todo
@@ -187,37 +171,38 @@ func (p Uint64Slice) Sort() { sort.Sort(p) }
 // utility functions
 
 func (d *Dupless) init() {
-	minDirLength := DefaultMinDirLength
+	d.config = config
+	minDirLength := d.config.minDirLength
 	if runtime.GOOS == "windows" {
 		// c:/
 		minDirLength = 3
 	}
 
 	// flag.StringVar(&d.config.cache, "cache", DefaultCache, "Cache filename")
-	flag.UintVar(&d.config.chunk, "chunk", DefaultChunk, "Hash chunk")
-	flag.BoolVar(&d.config.dirReport, "dir_report", DefaultDirReport, "Report by directory")
-	flag.BoolVar(&d.config.errorReport, "error_report", DefaultErrorReport, "Report of errors")
-	flag.StringVar(&d.config.exclude, "exclude", DefaultExclude, "Regex(s) of Directories/files to exclude, separated by |")
-	flag.StringVar(&d.config.iexclude, "iexclude", DefaultIexclude, "Regex(s) of Directories/files to exclude, separated by |")
-	//flag.BoolVar(&d.config.extra, "extra", DefaultExtra, "Cache extra attributes")
-	flag.UintVar(&d.config.freq, "frequency", DefaultFrequency, "Reporting frequency")
-	flag.StringVar(&d.config.hash, "hash", DefaultHash, "Hash type")
-	flag.BoolVar(&d.config.help, "help", false, "Display help")
-	flag.BoolVar(&d.config.ignoredReport, "ignored_report", DefaultIgnoredReport, "Report of ignored files")
-	flag.StringVar(&d.config.mask, "mask", DefaultMask, "File mask(s), seperated by |")
+	flag.UintVar(&d.config.chunk, "chunk", d.config.chunk, "Hash chunk")
+	flag.BoolVar(&d.config.dirReport, "dir_report", d.config.dirReport, "Report by directory")
+	flag.BoolVar(&d.config.errorReport, "error_report", d.config.errorReport, "Report of errors")
+	flag.StringVar(&d.config.exclude, "exclude", d.config.exclude, "Regex(s) of Directories/files to exclude, separated by |")
+	flag.StringVar(&d.config.iexclude, "iexclude", d.config.iexclude, "Regex(s) of Directories/files to exclude, separated by |")
+	//flag.BoolVar(&d.config.extra, "extra", d.config.extra, "Cache extra attributes")
+	flag.UintVar(&d.config.freq, "frequency", d.config.freq, "Reporting frequency")
+	flag.StringVar(&d.config.hash, "hash", d.config.hash, "Hash type")
+	flag.BoolVar(&d.config.help, "help", d.config.help, "Display help")
+	flag.BoolVar(&d.config.ignoredReport, "ignored_report", d.config.ignoredReport, "Report of ignored files")
+	flag.StringVar(&d.config.mask, "mask", d.config.mask, "File mask(s), seperated by |")
 	flag.UintVar(&d.config.minDirLength, "min_dir_len", minDirLength, "Minimum directory length")
-	flag.UintVar(&d.config.minFiles, "min_files", DefaultMinFiles, "Minimum files")
-	flag.Uint64Var(&d.config.minSize, "min_size", DefaultMinSize, "Minimum file size")
-	flag.BoolVar(&d.config.recursive, "recursive", DefaultRecursive, "Report directories recursively")
-	flag.BoolVar(&d.config.sizeReport, "size_report", DefaultSizeReport, "Report by size")
-	//flag.StringVar(&d.config.separator, "separator", DefaultSeparator, "Field separator")
-	// flag.BoolVar(&d.config.utc, "utc", DefaultUTC, "Report times in UTC")
-	flag.UintVar(&d.config.verbose, "verbose", DefaultVerbose, "Be more verbose")
+	flag.UintVar(&d.config.minFiles, "min_files", d.config.minFiles, "Minimum files")
+	flag.Uint64Var(&d.config.minSize, "min_size", d.config.minSize, "Minimum file size")
+	flag.BoolVar(&d.config.recursive, "recursive", d.config.recursive, "Report directories recursively")
+	flag.BoolVar(&d.config.sizeReport, "size_report", d.config.sizeReport, "Report by size")
+	//flag.StringVar(&d.config.seperator, "separator", d.config.seperator, "Field separator")
+	// flag.BoolVar(&d.config.utc, "utc", d.config.utc, "Report times in UTC")
+	flag.UintVar(&d.config.verbose, "verbose", d.config.verbose, "Be more verbose")
 
 	flag.Parse()
-
-	if d.config.chunk < 4096 || d.config.chunk > (2<<24) { // 16,777,216
-		fmt.Printf("Chunk must be between 4096 and 16777216: %d", d.config.chunk)
+	
+	if d.config.chunk < MinChunk || d.config.chunk > MaxChunk {
+		fmt.Printf("Chunk must be between %d and %d: %d", MinChunk, MaxChunk, d.config.chunk)
 		os.Exit(1)
 	}
 
