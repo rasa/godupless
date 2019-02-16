@@ -819,8 +819,14 @@ func (d *Dupless) resetCounters() {
 }
 
 func (d *Dupless) progressHeader() {
-	// @move to func
-	d.p.Printf("\nMinimum size: %d\n\n", d.config.minSize)
+	fmt.Println("")
+	d.p.Printf("Chunk size:    %d\n", d.config.chunk)
+	d.p.Printf("Minimum files: %d\n", d.config.minFiles)
+	d.p.Printf("Minimum size:  %d\n", d.config.minSize)
+	d.p.Printf("Masks:         %v\n", d.config.mask)
+	d.p.Printf("Recursive:     %v\n", d.config.recursive)
+	d.p.Printf("Verbosity:     %d\n", d.config.verbose)
+	fmt.Println("")
 
 	fmt.Printf("    skipped     matched directories     ignored      errors device\n")
 	fmt.Printf("----------- ----------- ----------- ----------- ----------- ------\n")
@@ -831,12 +837,10 @@ func (d *Dupless) findFiles() bool {
 	for _, arg := range flag.Args() {
 		if arg == "*" {
 			volumes, err := file.GetVolumes()
-			util.Dump("volumes=", volumes)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "\nGetVolumes() returned:", err)
+				fmt.Fprintln(os.Stderr, "\nFailed to get volumes:", err)
 			}
 			for _, volume := range volumes {
-				fmt.Printf("volume=%q\n", volume)
 				args = append(args, volume)
 			}
 			continue
@@ -854,7 +858,6 @@ func (d *Dupless) findFiles() bool {
 			fmt.Println("")
 		}
 		d.resetCounters()
-		fmt.Printf("%d: arg=%s\n", i, arg)
 		if file.IsVolume(arg) {
 			d.volume = arg
 		} else {
@@ -927,7 +930,7 @@ func main() {
 	start := time.Now()
 
 	if !d.findFiles() {
-		fmt.Printf("No matching files found\n")
+		fmt.Println("No matching files found")
 		return
 	}
 
