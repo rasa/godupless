@@ -113,7 +113,7 @@ var config = Config{
 	//dirReport: false,
 	//errorReport: false,
 	//ignoredReport: false,
-	sizeReport: true
+	sizeReport: true,
 }
 
 // Stats @todo
