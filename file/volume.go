@@ -9,6 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/rasa/godupless/util"
+	
+	"github.com/docker/docker/pkg/mount"
 )
 
 var devMap map[uint64]string
@@ -55,9 +59,16 @@ func (f *File) VolumeName() (volume string, err error) {
 	return volume, nil
 }
 
+func filterFunc(*mount.Info) (skip, stop bool) {
+	return false, false
+}
+
 // GetVolumes @todo
 func GetVolumes() ([]string, error) {
 	var err error
+	infoslice, err := mount.GetMounts(filterFunc)
+	util.Dump("infoslice=", infoslice)
+	
 	/*
 		if len(volumeMap) == 0 {
 			err := loadVolumeMap()
