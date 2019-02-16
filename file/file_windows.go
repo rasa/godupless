@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+var ExcludePaths = []string{
+	`(?i)^[A-Z]:/$Recycle\.bin`,
+	`(?i)^[A-Z]:/System Volume Information`,
+}
+
 var mutex sync.Mutex
 
 func (f *File) stat(fi os.FileInfo) (err error) {
