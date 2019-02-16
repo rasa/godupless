@@ -31,7 +31,7 @@ import (
 
 const (
 	MinChunk = 2 << 12 // 4096
-	MaxChunk = 2 << 24// 16,777,216
+	MaxChunk = 2 << 24 // 16,777,216
 )
 
 // Dir @todo
@@ -69,9 +69,9 @@ type IgnoredRec struct {
 // Config @todo
 type Config struct {
 	//cache     string
-	chunk     uint
+	chunk uint
 	//separator string
-	exclude   string
+	exclude string
 	//extra         bool
 	freq     uint
 	hash     string
@@ -104,8 +104,8 @@ var config = Config{
 	//iexclude: "",
 	//mask: "",
 	minDirLength: 2,
-	minFiles: 2,
-	minSize: 2 << 20, // 2<<20=2^21=2,097,152
+	minFiles:     2,
+	minSize:      2 << 20, // 2<<20=2^21=2,097,152
 	//recursive: false,
 	// utc: false,
 	//verbose: 0,
@@ -200,7 +200,7 @@ func (d *Dupless) init() {
 	flag.UintVar(&d.config.verbose, "verbose", d.config.verbose, "Be more verbose")
 
 	flag.Parse()
-	
+
 	if d.config.chunk < MinChunk || d.config.chunk > MaxChunk {
 		fmt.Printf("Chunk must be between %d and %d: %d", MinChunk, MaxChunk, d.config.chunk)
 		os.Exit(1)
