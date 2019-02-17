@@ -183,7 +183,7 @@ clean: ## Cleanup any build binaries or packages.
 gofmt: ## Format all .go files via `gofmt -s` (simplify)
 	@echo "+ $@"
 	@gofmt -s -l . | grep -E -v '(\.pb\.go:|vendor)' || true
-	find . -iname '*.go' ! -ipath './vendor/*' | xargs gofmt -s -w
+	find . -iname '\*.go' ! -ipath './vendor/*' | xargs -n 1 gofmt -s -w
 
 .PHONY: mailmap
 mailmap: ## Generate committer list to add to .mailmap
