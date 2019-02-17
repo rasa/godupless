@@ -3,7 +3,6 @@
 package file
 
 import (
-	"errors"
 	"os"
 	"sync"
 	"syscall"
@@ -38,7 +37,7 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 
 	s, ok := fi.Sys().(*syscall.Win32FileAttributeData)
 	if !ok {
-		return errors.New("conversion to *syscall.Win32FileAttributeData failed")
+		return errWin32FileAttributesConversion
 	}
 	f.atime = time.Unix(0, s.LastAccessTime.Nanoseconds())
 	f.ctime = time.Unix(0, s.CreationTime.Nanoseconds())
@@ -62,6 +61,8 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 	f.volumeID = uint64(i.VolumeSerialNumber)
 	f.fileID = (uint64(i.FileIndexHigh) << 32) + uint64(i.FileIndexLow)
 	f.nlinks = uint64(i.NumberOfLinks)
+	//f.uid @odo
+	//f.gid @todo
 	return nil
 }
 

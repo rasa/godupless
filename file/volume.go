@@ -1,5 +1,7 @@
 // +build !windows
 // +build !plan9
+// +build !js
+// +build !nacl
 
 package file
 

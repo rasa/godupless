@@ -3,7 +3,6 @@
 package file
 
 import (
-	"errors"
 	"os"
 	"syscall"
 
@@ -34,7 +33,7 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 
 	s, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
-		return errors.New("conversion to *syscall.Stat_t failed")
+		return errStatConversion
 	}
 
 	f.volumeID = uint64(s.Dev) // uint32
@@ -42,5 +41,7 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 	f.atime = util.TimespecToTime(s.Atim)
 	f.ctime = util.TimespecToTime(s.Ctim)
 	f.nlinks = uint64(s.Nlink) // uint32 (int16 on aix)
+	f.uid = uint64(s.Uid)
+	f.gid = uint64(s.Gid)
 	return nil
 }

@@ -2,6 +2,7 @@ package file
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -12,6 +13,12 @@ import (
 	"time"
 
 	"github.com/rasa/godupless/util"
+)
+
+var (
+	errStatConversion                = errors.New("conversion to *syscall.Stat_t failed")
+	errDirConversion                 = errors.New("conversion to *syscall.Dir failed")
+	errWin32FileAttributesConversion = errors.New("conversion to *syscall.Win32FileAttributeData failed")
 )
 
 // File @todo
@@ -48,6 +55,8 @@ type File struct {
 	atime    time.Time
 	ctime    time.Time
 	nlinks   uint64
+	uid      uint64
+	gid      uint64
 	// Sys() interface{}
 
 	h   hash.Hash
@@ -136,6 +145,16 @@ func (f *File) Ctime() time.Time {
 // Links @todo
 func (f *File) Links() uint64 {
 	return f.nlinks
+}
+
+// UID @todo
+func (f *File) UID() uint64 {
+	return f.uid
+}
+
+// GID @todo
+func (f *File) GID() uint64 {
+	return f.gid
 }
 
 // Type @todo

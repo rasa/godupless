@@ -6,6 +6,8 @@ import (
 	"os"
 	"syscall"
 	"time"
+
+	"github.com/cespare/xxhash"
 )
 
 // MinDirLength @todo
@@ -32,7 +34,7 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 
 	s, ok := fi.Sys().(*syscall.Dir)
 	if !ok {
-		return nil, errors.New("conversion to *syscall.Dir failed")
+		return errDirConversion
 	}
 	f.volumeID = uint64(s.Type)<<32 + uint64(s.Dev)
 	f.fileID = s.Qid.Path
@@ -40,5 +42,7 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 	// not supported:
 	// f.ctime = time.Unix(0, 0)
 	// f.nlinks = 0
+	f.uid = xxhash.Sum64([]byte(s.Uid))
+	f.gid = xxhash.Sum64([]byte(s.Gid))
 	return nil
 }
