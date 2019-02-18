@@ -14,7 +14,10 @@ const MinDirLength = 3
 
 // ExcludePaths @todo
 var ExcludePaths = []string{
+	`(?i)^[A-Z]:/hiberfil\.sys`,
+	`(?i)^[A-Z]:/pagefile\.sys`,
 	`(?i)^[A-Z]:/$Recycle\.bin`,
+	`(?i)^[A-Z]:/swapfile\.sys`,
 	`(?i)^[A-Z]:/System Volume Information`,
 }
 
