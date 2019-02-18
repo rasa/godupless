@@ -59,11 +59,13 @@ type File struct {
 	gid      uint64
 	// Sys() interface{}
 
-	h   hash.Hash
-	fh  *os.File
-	pos uint64
-	eof bool
-	err error
+	h    hash.Hash
+	sum  []byte
+	hash string
+	fh   *os.File
+	pos  uint64
+	eof  bool
+	err  error
 }
 
 // NewFile @todo
@@ -186,7 +188,7 @@ func (f *File) Reset() {
 	f.pos = 0
 	f.err = nil
 	f.eof = false
-	f.h.Reset()
+	f.ResetHash()
 }
 
 // Open @todo
@@ -251,7 +253,13 @@ func (f *File) Read(bytes uint64) (err error) {
 			f.eof = true
 		} else {
 			f.err = err
+			f.sum = []byte{}
+			f.hash = ""
 		}
+	}
+	if err == nil || err == io.EOF {
+		f.sum = f.h.Sum(nil)
+		f.hash = fmt.Sprintf("%x", f.sum)
 	}
 	return err
 }
@@ -268,18 +276,12 @@ func (f *File) Err() error {
 
 // Sum @todo
 func (f *File) Sum() []byte {
-	if f.h == nil {
-		return nil
-	}
-	return f.h.Sum(nil)
+	return f.sum
 }
 
 // Hash @todo
 func (f *File) Hash() string {
-	if f.h == nil {
-		return ""
-	}
-	return fmt.Sprintf("%x", f.h.Sum(nil))
+	return f.hash
 }
 
 // Pos @todo
@@ -299,6 +301,13 @@ func (f *File) Close() (err error) {
 		f.fh = nil
 	}
 	return err
+}
+
+// ResetHash @todo
+func (f *File) ResetHash() {
+	f.h.Reset()
+	f.sum = []byte{}
+	f.hash = ""
 }
 
 // debug functions:
