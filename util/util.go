@@ -7,41 +7,20 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
+	//"runtime"
 	"strings"
 	"syscall"
 	"time"
 )
 
-// Basename @todo
-// basename removes trailing slashes and the leading
-// directory name and drive letter from path name.
-func Basename(name string) string {
-	// Remove drive letter
-	if len(name) == 2 && name[1] == ':' {
-		name = "."
-	} else if len(name) > 2 && name[1] == ':' {
-		name = name[2:]
-	}
-	i := len(name) - 1
-	// Remove trailing slashes
-	for ; i > 0 && (name[i] == '/' || name[i] == '\\'); i-- {
-		name = name[:i]
-	}
-	// Remove leading directory name
-	for i--; i >= 0; i-- {
-		if name[i] == '/' || name[i] == '\\' {
-			name = name[i+1:]
-			break
-		}
-	}
-	return name
+// Basename @todo rename to Base
+func Basename(path string) string {
+	return filepath.Base(path)
 }
 
-// Dirname @todo
+// Dirname @todo rename to Dir
 func Dirname(path string) string {
-	dir, _ := filepath.Split(path)
-	return TrimSuffix(TrimSuffix(dir, "/"), "\\")
+	return filepath.Dir(path)
 }
 
 // Dump @todo
@@ -60,12 +39,9 @@ func Dump(s string, x interface{}) {
 	fmt.Println(string(b))
 }
 
-// NormalizePath @todo
+// NormalizePath @todo rename to ToSlash
 func NormalizePath(path string) string {
-	if runtime.GOOS == "windows" {
-		return strings.Replace(path, "\\", "/", -1)
-	}
-	return path
+	return filepath.ToSlash(path)
 }
 
 // Pause @todo

@@ -7,6 +7,7 @@ import (
 	"hash"
 	"io"
 	"os"
+	"path/filepath"
 	//"runtime"
 	//"strings"
 	//"syscall"
@@ -81,7 +82,12 @@ func NewFile(path string, fi os.FileInfo, h hash.Hash) (f *File, err error) {
 
 // Name @todo
 func (f *File) Name() string {
-	return util.Basename(f.path)
+	return filepath.Base(f.path)
+}
+
+// Dir @todo
+func (f *File) Dir() string {
+	return filepath.Dir(f.path)
 }
 
 // Path @todo

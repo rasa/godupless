@@ -69,6 +69,7 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 	return nil
 }
 
+/*
 // basename removes trailing slashes and the leading
 // directory name and drive letter from path name.
 func basename(name string) string {
@@ -92,3 +93,4 @@ func basename(name string) string {
 	}
 	return name
 }
+*/
