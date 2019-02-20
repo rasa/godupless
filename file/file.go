@@ -12,6 +12,10 @@ import (
 	//"strings"
 	//"syscall"
 	"time"
+    "encoding/base64"
+    "encoding/gob"
+    "bytes"
+	"strings"
 
 	"github.com/rasa/godupless/util"
 )
@@ -137,7 +141,13 @@ func (f *File) FileID() uint64 {
 
 // UniqueID @todo
 func (f *File) UniqueID() string {
-	return fmt.Sprintf("%016x%016x", f.volumeID, f.fileID)
+    b := bytes.Buffer{}
+    e := gob.NewEncoder(&b)
+    e.Encode(f.volumeID)
+	e.Encode(f.fileID)
+    s := base64.StdEncoding.EncodeToString(b.Bytes())
+	return strings.TrimRight(s, "=")
+	//return fmt.Sprintf("%016x%016x", f.volumeID, f.fileID)
 }
 
 // Atime @todo
@@ -238,7 +248,7 @@ func (f *File) Reopen() error {
 }
 
 // Read @todo
-func (f *File) Read(bytes uint64) (err error) {
+func (f *File) Read(n uint64) (err error) {
 	if f.eof {
 		return io.EOF
 	}
@@ -252,7 +262,7 @@ func (f *File) Read(bytes uint64) (err error) {
 			return err
 		}
 	}
-	written, err := io.CopyN(f.h, f.fh, int64(bytes))
+	written, err := io.CopyN(f.h, f.fh, int64(n))
 	f.pos += uint64(written)
 	if err != nil {
 		if err == io.EOF {
@@ -265,7 +275,12 @@ func (f *File) Read(bytes uint64) (err error) {
 	}
 	if err == nil || err == io.EOF {
 		f.sum = f.h.Sum(nil)
-		f.hash = fmt.Sprintf("%x", f.sum)
+		b := bytes.Buffer{}
+		e := gob.NewEncoder(&b)
+		e.Encode(f.sum)
+		s := base64.StdEncoding.EncodeToString(b.Bytes())
+		f.hash = strings.TrimRight(s, "=")
+		//f.hash = fmt.Sprintf("%x", f.sum)
 	}
 	return err
 }
@@ -290,6 +305,11 @@ func (f *File) Hash() string {
 	return f.hash
 }
 
+// Hex @todo
+func (f *File) Hex() string {
+	return fmt.Sprintf("%x", f.sum)
+}
+		
 // Pos @todo
 func (f *File) Pos() uint64 {
 	return f.pos

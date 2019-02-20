@@ -31,6 +31,8 @@ import (
 )
 
 const (
+	// @todo move to Config?
+	hashKey = "0000000000000000000000000000000000000000000000000000000000000000"
 	// DefaultLanguage is the default language to display numbers in
 	DefaultLanguage = "en" // English
 	// MinChunk minimum chunk size, should be a power of 2
@@ -40,30 +42,6 @@ const (
 	// MinMinFiles Mininum number of the minimum files to compare to hash
 	MinMinFiles = 2
 )
-
-// ErrorRec  Error report record (for scanning relared errors)
-type ErrorRec struct {
-	// Path contains the full path of the file that generated an error
-	Path string
-	// Error contains the error message related to the file
-	Error string
-}
-
-// ErrorFiles Error report record (for hashing relared errors)
-type ErrorFiles struct {
-	// Files has the list of files of the same size as a file that errored
-	Files []*file.File
-	// Error has the error that caused this group of files to be skipped
-	Err error
-}
-
-// IgnoredRec Ignored report record
-type IgnoredRec struct {
-	// Path contains the full path of the ignore file
-	Path string
-	// Type contains the type of ignored file (symlink, named pipe, etc)
-	Type string
-}
 
 // Config Config settings for Dupless class
 type Config struct {
@@ -119,7 +97,7 @@ var config = Config{
 	//Exclude: "",
 	// Extra: false,
 	Freq: 100,
-	Hash: "highway",
+	Hash: "xxhash",
 	//Help: false,
 	//Iexclude: "",
 	//Mask: "",
@@ -135,6 +113,30 @@ var config = Config{
 	//HardLinkReport: false,
 	//IgnoredReport: false,
 	SizeReport: true,
+}
+
+// ErrorRec  Error report record (for scanning relared errors)
+type ErrorRec struct {
+	// Path contains the full path of the file that generated an error
+	Path string
+	// Error contains the error message related to the file
+	Error string
+}
+
+// ErrorFiles Error report record (for hashing relared errors)
+type ErrorFiles struct {
+	// Files has the list of files of the same size as a file that errored
+	Files []*file.File
+	// Error has the error that caused this group of files to be skipped
+	Err error
+}
+
+// IgnoredRec Ignored report record
+type IgnoredRec struct {
+	// Path contains the full path of the ignore file
+	Path string
+	// Type contains the type of ignored file (symlink, named pipe, etc)
+	Type string
 }
 
 // FileStats @todo
@@ -199,34 +201,25 @@ type HashStats struct {
 	// TotalRemainingBytes total bytes remainging to be read
 	TotalRemainingBytes uint64
 
-	// @todo:
-	//dupBytes uint64 // total bytes of duplicate files hashed so far
-	//uniqueBytes uint64 // total bytes of unique files hashed so far
-	//hashedSizes uint64 // number of sizes that have been hashed so far
+	// @todo ?
+	// dupBytes uint64 // total bytes of duplicate files hashed so far
+	// uniqueBytes uint64 // total bytes of unique files hashed so far
+	// hashedSizes uint64 // number of sizes that have been hashed so far
 	// totalSizes uint64
 }
 
-// @todo move to Config?
-const hashKey = "0000000000000000000000000000000000000000000000000000000000000000"
-
-var hashBytes []byte
-
-func init() {
-	hashBytes, _ = hex.DecodeString(hashKey)
-}
-
 func highway64New() hash.Hash {
-	h, _ := highwayhash.New64(hashBytes)
+	h, _ := highwayhash.New64([]byte(hashKey))
 	return h
 }
 
 func highway128New() hash.Hash {
-	h, _ := highwayhash.New128(hashBytes)
+	h, _ := highwayhash.New128([]byte(hashKey))
 	return h
 }
 
 func highway256New() hash.Hash {
-	h, _ := highwayhash.New(hashBytes)
+	h, _ := highwayhash.New([]byte(hashKey))
 	return h
 }
 
@@ -314,7 +307,13 @@ func (d *Dupless) Init() {
 	d.Errors = make(map[uint64]map[string]*ErrorFiles)
 
 	d.Config = config
-
+	
+	_, err := hex.DecodeString(hashKey)
+	if err != nil {
+		fmt.Printf("Invalid hash key %s: %s\n", hashKey, err)
+		os.Exit(1)
+	}
+	
 	userLanguage, err := jibber_jabber.DetectLanguage()
 	if err != nil {
 		userLanguage = DefaultLanguage
@@ -411,19 +410,6 @@ func (d *Dupless) Init() {
 	*/
 }
 
-// Progress @todo
-func (d *Dupless) Progress(force bool) {
-	if !force && (d.Config.Freq == 0 || d.Fstats.Hits%d.Config.Freq != 0) {
-		return
-	}
-
-	dev := d.Dev
-	if d.Volume > "" && dev != d.Volume {
-		dev += " (" + d.Volume + ")"
-	}
-	d.P.Printf("\r%11d %11d %11d %11d %11d %s", d.Fstats.Skips, d.Fstats.Matches, d.Fstats.Directories, d.Fstats.Ignores, d.Fstats.Errors, dev)
-}
-
 // AddError @todo
 func (d *Dupless) AddError(path string, s string) {
 	dir := util.Dirname(path)
@@ -444,60 +430,6 @@ func (d *Dupless) AddIgnore(path string, typ string) {
 	if d.Config.Verbose > 0 {
 		fmt.Fprintf(os.Stderr, "\nSkipping %q: %s\n", path, typ)
 	}
-}
-
-// CalculateStats @todo
-func (d *Dupless) CalculateStats() {
-	d.Hstats.RemainingSizes = len(d.Hashes)
-
-	d.Hstats.ErrorFiles = 0
-	for _, hashmap := range d.Errors {
-		for _, errorFiles := range hashmap {
-			d.Hstats.ErrorFiles += len(errorFiles.Files)
-		}
-	}
-
-	d.Hstats.DupFiles = 0
-	for _, hashmap := range d.Dups {
-		for _, files := range hashmap {
-			d.Hstats.DupFiles += len(files)
-		}
-	}
-
-	d.Hstats.Loops = d.Hstats.Loop + uint(len(d.Hashes))
-
-	d.Hstats.Duration = time.Since(d.Hstats.Start)
-	seconds := d.Hstats.Duration.Seconds()
-	if seconds > 0.0 {
-		bytesPerSecond := float64(d.Hstats.TotalReadBytes) / seconds
-		d.Hstats.MbPerSecond = bytesPerSecond / 1000000
-		remainingSeconds := int64(float64(d.Hstats.TotalRemainingBytes) / bytesPerSecond)
-		d.Hstats.Left = time.Duration(remainingSeconds) * time.Second
-		d.Hstats.Finish = time.Now().Add(d.Hstats.Left)
-	}
-
-	d.Hstats.RemainingFiles = 0
-
-	if len(d.Hashes) > 0 {
-		d.Hstats.MaxBytes = 0
-		d.Hstats.TotalRemainingBytes = 0
-		for size, hashmap := range d.Hashes {
-			if size > d.Hstats.MaxBytes {
-				d.Hstats.MaxBytes = size
-			}
-
-			for _, files := range hashmap {
-				d.Hstats.RemainingFiles += len(files)
-				d.Hstats.TotalRemainingBytes += size * uint64(len(files))
-			}
-		}
-	}
-
-	d.Hstats.HashedFiles = d.Hstats.TotalFiles - d.Hstats.RemainingFiles
-	d.Hstats.UniqueFiles = d.Hstats.HashedFiles - d.Hstats.DupFiles - d.Hstats.ErrorFiles
-
-	// @todo remove
-	//util.Dump("\nhstats=", d.Hstats)
 }
 
 // AddDups @todo
@@ -623,6 +555,60 @@ Loop:
 	delete(d.Hashes, size)
 }
 
+// CalculateStats @todo
+func (d *Dupless) CalculateStats() {
+	d.Hstats.RemainingSizes = len(d.Hashes)
+
+	d.Hstats.ErrorFiles = 0
+	for _, hashmap := range d.Errors {
+		for _, errorFiles := range hashmap {
+			d.Hstats.ErrorFiles += len(errorFiles.Files)
+		}
+	}
+
+	d.Hstats.DupFiles = 0
+	for _, hashmap := range d.Dups {
+		for _, files := range hashmap {
+			d.Hstats.DupFiles += len(files)
+		}
+	}
+
+	d.Hstats.Loops = d.Hstats.Loop + uint(len(d.Hashes))
+
+	d.Hstats.Duration = time.Since(d.Hstats.Start)
+	seconds := d.Hstats.Duration.Seconds()
+	if seconds > 0.0 {
+		bytesPerSecond := float64(d.Hstats.TotalReadBytes) / seconds
+		d.Hstats.MbPerSecond = bytesPerSecond / 1000000
+		remainingSeconds := int64(float64(d.Hstats.TotalRemainingBytes) / bytesPerSecond)
+		d.Hstats.Left = time.Duration(remainingSeconds) * time.Second
+		d.Hstats.Finish = time.Now().Add(d.Hstats.Left)
+	}
+
+	d.Hstats.RemainingFiles = 0
+
+	if len(d.Hashes) > 0 {
+		d.Hstats.MaxBytes = 0
+		d.Hstats.TotalRemainingBytes = 0
+		for size, hashmap := range d.Hashes {
+			if size > d.Hstats.MaxBytes {
+				d.Hstats.MaxBytes = size
+			}
+
+			for _, files := range hashmap {
+				d.Hstats.RemainingFiles += len(files)
+				d.Hstats.TotalRemainingBytes += size * uint64(len(files))
+			}
+		}
+	}
+
+	d.Hstats.HashedFiles = d.Hstats.TotalFiles - d.Hstats.RemainingFiles
+	d.Hstats.UniqueFiles = d.Hstats.HashedFiles - d.Hstats.DupFiles - d.Hstats.ErrorFiles
+
+	// @todo remove
+	//util.Dump("\nhstats=", d.Hstats)
+}
+
 // ReadFiles @todo
 func (d *Dupless) ReadFiles() {
 	d.Hstats.Start = time.Now()
@@ -712,6 +698,19 @@ func (d *Dupless) GetHashes() bool {
 
 	d.ReadFiles()
 	return len(d.Dups) > 0
+}
+
+// Progress @todo
+func (d *Dupless) Progress(force bool) {
+	if !force && (d.Config.Freq == 0 || d.Fstats.Hits%d.Config.Freq != 0) {
+		return
+	}
+
+	dev := d.Dev
+	if d.Volume > "" && dev != d.Volume {
+		dev += " (" + d.Volume + ")"
+	}
+	d.P.Printf("\r%11d %11d %11d %11d %11d %s", d.Fstats.Skips, d.Fstats.Matches, d.Fstats.Directories, d.Fstats.Ignores, d.Fstats.Errors, dev)
 }
 
 // Visit @todo
@@ -839,8 +838,8 @@ func (d *Dupless) ResetCounters() {
 	d.LastDev = ""
 }
 
-// ProgressHeader @todo
-func (d *Dupless) ProgressHeader() {
+// Header @todo
+func (d *Dupless) Header() {
 	fmt.Println("")
 	fmt.Printf("Arguments:     %s\n", strings.Join(d.Args, ","))
 	d.P.Printf("Chunk size:    %d\n", d.Config.Chunk)
@@ -928,16 +927,14 @@ func (d *Dupless) Run() bool {
 
 	d.ProcessArgs()
 
-	d.ProgressHeader()
+	d.Header()
 
 	if !d.FindFiles() {
 		fmt.Println("No matching files found")
 		return true
 	}
 
-	ok := d.GetHashes()
-
-	if !ok {
+	if !d.GetHashes() {
 		fmt.Println("No duplicate files found")
 		return false
 	}
