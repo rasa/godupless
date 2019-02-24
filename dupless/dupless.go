@@ -32,7 +32,8 @@ import (
 
 const (
 	// @todo move to Config?
-	hashKey = "0000000000000000000000000000000000000000000000000000000000000000"
+	// from https://github.com/minio/highwayhash/blob/master/examples_test.go#L17
+	hashKey = "000102030405060708090A0B0C0D0E0FF0E0D0C0B0A090807060504030201000"
 	// DefaultLanguage is the default language to display numbers in
 	DefaultLanguage = "en" // English
 	// MinChunk minimum chunk size, should be a power of 2
