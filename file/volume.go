@@ -1,7 +1,13 @@
-// +build !js
-// +build !nacl
+// +build !aix     // unsupported
+// +build !js      // unsupported
+// +build !nacl    // unsupported
 // +build !plan9
 // +build !windows
+
+// aix,nacl
+//   docker/docker/vendor/github.com/sirupsen/logrus/terminal_check_notappengine.go:15:10: undefined: terminal.IsTerminal
+// js:
+// 	 docker/docker/pkg/mount/unmount_unix.go:5:8: build constraints exclude all Go files in d:/go/src/github.com/docker/docker/vendor/golang.org/x/sys/unix
 
 package file
 
