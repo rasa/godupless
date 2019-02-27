@@ -1,12 +1,11 @@
-// +build dragonfly linux openbsd solaris
+// +build aix
 
 package file
 
 import (
 	"os"
 	"syscall"
-
-	"github.com/rasa/godupless/util"
+	"time"
 )
 
 // MinDirLength @todo
@@ -38,9 +37,9 @@ func (f *File) stat(fi os.FileInfo) (err error) {
 
 	f.volumeID = uint64(s.Dev) // uint32
 	f.fileID = s.Ino
-	f.atime = util.TimespecToTime(s.Atim)
-	f.ctime = util.TimespecToTime(s.Ctim)
-	f.nlinks = uint64(s.Nlink) // uint32 (int16 on aix)
+	f.atime = time.Unix(int64(s.Atim.Sec), int64(s.Atim.Nsec))
+	f.ctime = time.Unix(int64(s.Ctim.Sec), int64(s.Ctim.Nsec))
+	f.nlinks = uint64(s.Nlink) // int16 on aix
 	f.uid = uint64(s.Uid)
 	f.gid = uint64(s.Gid)
 	return nil

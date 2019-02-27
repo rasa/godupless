@@ -11,11 +11,11 @@ import (
 	//"runtime"
 	//"strings"
 	//"syscall"
-	"time"
-    "encoding/base64"
-    "encoding/gob"
-    "bytes"
+	"bytes"
+	"encoding/base64"
+	"encoding/gob"
 	"strings"
+	"time"
 
 	"github.com/rasa/godupless/util"
 )
@@ -141,11 +141,11 @@ func (f *File) FileID() uint64 {
 
 // UniqueID @todo
 func (f *File) UniqueID() string {
-    b := bytes.Buffer{}
-    e := gob.NewEncoder(&b)
-    e.Encode(f.volumeID)
+	b := bytes.Buffer{}
+	e := gob.NewEncoder(&b)
+	e.Encode(f.volumeID)
 	e.Encode(f.fileID)
-    s := base64.StdEncoding.EncodeToString(b.Bytes())
+	s := base64.StdEncoding.EncodeToString(b.Bytes())
 	return strings.TrimRight(s, "=")
 	//return fmt.Sprintf("%016x%016x", f.volumeID, f.fileID)
 }
@@ -309,7 +309,7 @@ func (f *File) Hash() string {
 func (f *File) Hex() string {
 	return fmt.Sprintf("%x", f.sum)
 }
-		
+
 // Pos @todo
 func (f *File) Pos() uint64 {
 	return f.pos

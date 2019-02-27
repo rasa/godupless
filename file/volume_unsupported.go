@@ -1,4 +1,4 @@
-// +build js nacl
+// +build aix js nacl
 
 package file
 
