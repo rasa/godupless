@@ -1,5 +1,7 @@
 ## generated via: go tool dist list
 ## items with 2 hashes require C compiler
+## complete list is at https://golang.org/src/go/build/syslist.go
+#aix/ppc64
 ##android/386
 ##android/amd64
 ##android/arm
@@ -40,3 +42,4 @@ linux/arm64
 solaris/amd64
 windows/386
 windows/amd64
+windows/arm
