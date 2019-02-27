@@ -308,13 +308,13 @@ func (d *Dupless) Init() {
 	d.Errors = make(map[uint64]map[string]*ErrorFiles)
 
 	d.Config = config
-	
+
 	_, err := hex.DecodeString(hashKey)
 	if err != nil {
 		fmt.Printf("Invalid hash key %s: %s\n", hashKey, err)
 		os.Exit(1)
 	}
-	
+
 	userLanguage, err := jibber_jabber.DetectLanguage()
 	if err != nil {
 		userLanguage = DefaultLanguage
