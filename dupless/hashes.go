@@ -91,7 +91,7 @@ func GetHasher(hash string) func() hash.Hash {
 	hash = strings.ToLower(hash)
 	hasher, ok := Hashmap[hash]
 	if !ok {
-		fmt.Println("Hash %s is not one of: ", hash, Hashes())
+		fmt.Printf("Hash %s is not one of: %s\n", hash, Hashes())
 		os.Exit(1)
 	}
 	return hasher
