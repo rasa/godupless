@@ -2,11 +2,6 @@
 package dupless
 
 import (
-	"crypto/md5"
-	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"hash"
@@ -20,8 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cespare/xxhash"
-	"github.com/minio/highwayhash"
 	"github.com/rasa/godupless/file"
 	"github.com/rasa/godupless/types"
 	"github.com/rasa/godupless/util"
@@ -31,90 +24,9 @@ import (
 )
 
 const (
-	// @todo move to Config?
-	// from https://github.com/minio/highwayhash/blob/master/examples_test.go#L17
-	hashKey = "000102030405060708090A0B0C0D0E0FF0E0D0C0B0A090807060504030201000"
 	// DefaultLanguage is the default language to display numbers in
 	DefaultLanguage = "en" // English
-	// MinChunk minimum chunk size, should be a power of 2
-	MinChunk = 2 //2 << 12 // 4K
-	// MaxChunk maximum chunk size, should be a power of 2
-	MaxChunk = 2 << 29 // 1G
-	// MinMinFiles Mininum number of the minimum files to compare to hash
-	MinMinFiles = 2
 )
-
-// Config Config settings for Dupless class
-type Config struct {
-	//Cache string
-	// Chunk @todo
-	Chunk uint
-	//Separator string
-	// Exclude @todo
-	Exclude string
-	//Extra bool
-	// Freq @todo
-	Freq uint
-	// Hash @todo
-	Hash string
-	// Help @todo
-	Help bool
-	// Iexclude @todo
-	Iexclude string
-	// Mask @todo
-	Mask string
-	// @todo add an imask option?
-	// MinDirLength @todo
-	MinDirLength uint
-	// MinFiles @todo
-	MinFiles uint
-	// MinSize @todo
-	MinSize uint64
-	// Recursive @todo
-	Recursive bool
-	// Utc bool
-	// Verbose @todo
-	Verbose int
-
-	// DiffReport @todo
-	DiffReport bool
-	// DirReport @todo
-	DirReport bool
-	// ErrorReport @todo
-	ErrorReport bool
-	// HardLinkReport @todo
-	HardLinkReport bool
-	// IgnoredReport @todo
-	IgnoredReport bool
-	// SizeReport @todo
-	SizeReport bool
-}
-
-// default (initial) config settings
-var config = Config{
-	// Cache: "godupless.cache",
-	Chunk: 2 << 16, // 2<<16 = 2^17 = 131,072
-	// Separator: ",",
-	//Exclude: "",
-	// Extra: false,
-	Freq: 100,
-	Hash: "xxhash",
-	//Help: false,
-	//Iexclude: "",
-	//Mask: "",
-	MinFiles: 2,
-	MinSize:  2 << 20, // 2<<20 = 2^21 = 2,097,152
-	//Recursive: false,
-	// Utc: false,
-	//Verbose: 0,
-
-	//DiffReport: false,
-	//DirReport: false,
-	//ErrorReport: false,
-	//HardLinkReport: false,
-	//IgnoredReport: false,
-	SizeReport: true,
-}
 
 // ErrorRec  Error report record (for scanning relared errors)
 type ErrorRec struct {
@@ -209,38 +121,6 @@ type HashStats struct {
 	// totalSizes uint64
 }
 
-func highway64New() hash.Hash {
-	h, _ := highwayhash.New64([]byte(hashKey))
-	return h
-}
-
-func highway128New() hash.Hash {
-	h, _ := highwayhash.New128([]byte(hashKey))
-	return h
-}
-
-func highway256New() hash.Hash {
-	h, _ := highwayhash.New([]byte(hashKey))
-	return h
-}
-
-func xxhashNew() hash.Hash {
-	return xxhash.New()
-}
-
-// Hashmap list of hash methods
-var Hashmap = map[string]func() hash.Hash{
-	"highway":    highway256New,
-	"highway64":  highway64New,
-	"highway128": highway128New,
-	"highway256": highway256New,
-	"md5":        md5.New,
-	"sha1":       sha1.New,
-	"sha256":     sha256.New,
-	"sha512":     sha512.New,
-	"xxhash":     xxhashNew,
-}
-
 // Dupless @todo
 type Dupless struct {
 	// Config @todo
@@ -296,8 +176,10 @@ type Dupless struct {
 	Errors map[uint64]map[string]*ErrorFiles
 }
 
-// Init @todo
-func (d *Dupless) Init() {
+// New @todo
+func New(config Config) (d *Dupless) {
+	d = &Dupless{Config: config}
+
 	d.ErrorDirs = make(map[string][]*ErrorRec)
 	d.IgnoredDirs = make(map[string][]*IgnoredRec)
 	d.Files = make(map[string]*file.File)
@@ -307,13 +189,7 @@ func (d *Dupless) Init() {
 	d.Dups = make(map[uint64]map[string][]*file.File)
 	d.Errors = make(map[uint64]map[string]*ErrorFiles)
 
-	d.Config = config
-
-	_, err := hex.DecodeString(hashKey)
-	if err != nil {
-		fmt.Printf("Invalid hash key %s: %s\n", hashKey, err)
-		os.Exit(1)
-	}
+	d.HashFunc = GetHasher(d.Config.Hash)
 
 	userLanguage, err := jibber_jabber.DetectLanguage()
 	if err != nil {
@@ -323,56 +199,6 @@ func (d *Dupless) Init() {
 
 	tagLanguage := language.Make(userLanguage)
 	d.P = message.NewPrinter(tagLanguage) // language.English)
-
-	chunk := fmt.Sprintf("Hash chunk size (%d to %d)", MinChunk, MaxChunk)
-
-	var hashes []string
-	for k := range Hashmap {
-		hashes = append(hashes, k)
-	}
-	hash := "Hash type: " + strings.Join(hashes, ",")
-
-	// flag.StringVar(&d.Config.Cache, "cache", d.Config.Cache, "Cache filename")
-	flag.UintVar(&d.Config.Chunk, "chunk", d.Config.Chunk, chunk)
-	flag.StringVar(&d.Config.Exclude, "exclude", d.Config.Exclude, "Regex(s) of directories/files to exclude, separated by |")
-	flag.StringVar(&d.Config.Iexclude, "iexclude", d.Config.Iexclude, "Regex(s) of directories/files to exclude, separated by |")
-	//flag.BoolVar(&d.Config.Extra, "extra", d.Config.Extra, "Cache extra attributes")
-	flag.UintVar(&d.Config.Freq, "frequency", d.Config.Freq, "Reporting frequency")
-	flag.StringVar(&d.Config.Hash, "hash", d.Config.Hash, hash)
-	flag.BoolVar(&d.Config.Help, "help", d.Config.Help, "Display help")
-	flag.StringVar(&d.Config.Mask, "mask", d.Config.Mask, "File mask(s), seperated by |")
-	flag.UintVar(&d.Config.MinFiles, "min_files", d.Config.MinFiles, "Minimum files to compare")
-	flag.Uint64Var(&d.Config.MinSize, "min_size", d.Config.MinSize, "Minimum file size")
-	flag.BoolVar(&d.Config.Recursive, "recursive", d.Config.Recursive, "Report directories recursively")
-	//flag.StringVar(&d.Config.Seperator, "separator", d.Config.Seperator, "Field separator")
-	// flag.BoolVar(&d.Config.Utc, "utc", d.Config.Utc, "Report times in UTC")
-	flag.IntVar(&d.Config.Verbose, "verbose", d.Config.Verbose, "Increase log verbosity")
-
-	flag.BoolVar(&d.Config.DiffReport, "diff_report", d.Config.DiffReport, "Report on differences between directories containing duplicate files")
-	flag.BoolVar(&d.Config.DirReport, "dir_report", d.Config.DirReport, "Report summary of duplicates by directory")
-	flag.BoolVar(&d.Config.ErrorReport, "error_report", d.Config.ErrorReport, "Report of errors")
-	flag.BoolVar(&d.Config.HardLinkReport, "hard_link_report", d.Config.HardLinkReport, "Report on hard link differences")
-	flag.BoolVar(&d.Config.IgnoredReport, "ignored_report", d.Config.IgnoredReport, "Report of ignored files")
-	flag.BoolVar(&d.Config.SizeReport, "size_report", d.Config.SizeReport, "Report duplicates by size")
-
-	flag.Parse()
-
-	if d.Config.Chunk < MinChunk || d.Config.Chunk > MaxChunk {
-		fmt.Printf("Chunk must be between %d and %d", MinChunk, MaxChunk)
-		os.Exit(1)
-	}
-
-	d.Config.Hash = strings.ToLower(d.Config.Hash)
-	_, ok := Hashmap[d.Config.Hash]
-	if !ok {
-		fmt.Println("Hash must be one of ", hash)
-		os.Exit(1)
-	}
-
-	if d.Config.MinFiles < MinMinFiles {
-		fmt.Printf("Mininum files to compare must be %d or greater", MinMinFiles)
-		os.Exit(1)
-	}
 
 	// @todo ignore all hidden/system directories?
 	d.Excludes = file.ExcludePaths
@@ -409,6 +235,7 @@ func (d *Dupless) Init() {
 		}
 		d.Comma = value
 	*/
+	return d
 }
 
 // AddError @todo
@@ -665,8 +492,7 @@ func (d *Dupless) LoadHashmap() bool {
 		return false
 	}
 
-	f := Hashmap[d.Config.Hash]
-	h := f()
+	h := d.HashFunc()
 	defaultHash := fmt.Sprintf("%x", h.Sum(nil))
 
 	for size, uniqueMap := range d.Sizes {
@@ -726,8 +552,6 @@ func (d *Dupless) Visit(path string, fi os.FileInfo, err error) error {
 		}
 	}
 
-	hfunc := Hashmap[d.Config.Hash]
-
 	err = nil
 	for {
 		d.Path = path
@@ -784,7 +608,7 @@ func (d *Dupless) Visit(path string, fi os.FileInfo, err error) error {
 			}
 		}
 
-		f, e := file.NewFile(path, fi, hfunc())
+		f, e := file.NewFile(path, fi, d.HashFunc())
 		if e != nil {
 			s := fmt.Sprintf("Cannot stat %q: %s", path, e)
 			d.AddError(path, s)
@@ -919,8 +743,6 @@ func (d *Dupless) Footer() {
 
 // Run @godo
 func (d *Dupless) Run() bool {
-	d.Init()
-
 	if len(flag.Args()) == 0 || d.Config.Help {
 		d.Config.Help = true
 		return false
