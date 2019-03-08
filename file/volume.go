@@ -1,6 +1,6 @@
-// +build !aix     // unsupported
-// +build !js      // unsupported
-// +build !nacl    // unsupported
+// +build !aix
+// +build !js
+// +build !nacl
 // +build !plan9
 // +build !windows
 
