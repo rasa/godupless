@@ -20,9 +20,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/rasa/godupless/util"
-
-	"github.com/docker/docker/pkg/mount"
+	"github.com/moby/moby/pkg/mount"
 )
 
 var devMap map[uint64]string
@@ -58,7 +56,7 @@ func visit(path string, fi os.FileInfo, err error) error {
 
 func loadDevMap() {
 	devErr = filepath.Walk("/dev", visit)
-	util.Dump("devMap=", devMap)
+	//util.Dump("devMap=", devMap)
 }
 
 // VolumeName @todo
@@ -75,9 +73,11 @@ func (f *File) VolumeName() (volume string, err error) {
 	return volume, nil
 }
 
+/*
 func filterFunc(i *mount.Info) (skip, stop bool) {
 	return false, false
 }
+*/
 
 var pathToIgnore = []string{
 	"/dev",
@@ -91,8 +91,8 @@ var volErr error
 
 func loadVolumeMap() {
 	var mounts []*mount.Info
-	mounts, volErr = mount.GetMounts(filterFunc)
-	util.Dump("mounts=", mounts)
+	mounts, volErr = mount.GetMounts()
+	//util.Dump("mounts=", mounts)
 Loop:
 	for _, mount := range mounts {
 		for _, path := range pathToIgnore {
@@ -108,7 +108,7 @@ Loop:
 // GetVolumes @todo
 func GetVolumes() ([]string, error) {
 	vonce.Do(loadVolumeMap)
-	util.Dump("volumes=", volumes)
+	//util.Dump("volumes=", volumes)
 	return volumes, volErr
 }
 
