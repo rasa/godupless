@@ -4,9 +4,6 @@ LABEL maintainer="Ross Smith II <ross@smithii.com>"
 ENV PATH /go/bin:/usr/local/go/bin:$PATH
 ENV GOPATH /go
 
-#RUN	apk add --no-cache \
-#	ca-certificates
-
 COPY . /go/src/github.com/rasa/godupless
 
 RUN set -x \
@@ -26,7 +23,6 @@ RUN set -x \
 FROM alpine:latest
 
 COPY --from=builder /usr/bin/godupless /usr/bin/godupless
-# COPY --from=builder /etc/ssl/certs/ /etc/ssl/certs
 
 ENTRYPOINT [ "godupless" ]
 CMD [ "--help" ]
