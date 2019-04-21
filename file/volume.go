@@ -20,7 +20,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/moby/moby/pkg/mount"
+	"github.com/docker/docker/pkg/mount"
 )
 
 var devMap map[uint64]string
