@@ -1,5 +1,7 @@
 # godupless
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/rasa/godupless)](https://goreportcard.com/report/github.com/rasa/godupless)
+
 godupless reports on duplicate files across multiple volumes
 
 ## Getting Started
